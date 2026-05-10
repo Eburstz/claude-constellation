@@ -1,0 +1,28 @@
+# --- generated outputs (NEVER commit your own conversation data) ---
+conversation-constellation.html
+*.constellation.html
+graph.json
+code_sessions.json
+web_sessions.json
+
+# --- claude.ai data export (raw user data) ---
+claude-graph-data/
+data-*.zip
+*claude*export*.zip
+conversations.json
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# --- editor / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

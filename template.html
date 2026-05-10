@@ -1,0 +1,2310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your Conversation Constellation</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+
+  /* ── Theme tokens ─────────────────────────────────────────────────────── */
+  :root {
+    /* dark (default) */
+    --bg-gradient: radial-gradient(ellipse at center, #0c1226 0%, #050813 70%, #02030a 100%);
+    /* Almost-opaque panel — stops canvas from bleeding through */
+    --panel-bg: rgba(10,17,32,0.98);
+    --panel-border: rgba(95,216,232,0.28);
+    --panel-shadow: 0 16px 40px rgba(0,0,0,0.45);
+    --text-primary: #e6eef8;
+    --text-secondary: #b8c8db;
+    --text-tertiary: #8aa1bd;
+    --text-muted: #6680a0;
+    --text-faint: #5a7593;
+    --accent: #aef0fa;
+    --accent-bg: rgba(95,216,232,0.10);
+    --accent-bg-strong: rgba(174,240,250,0.20);
+    --accent-border: rgba(174,240,250,0.55);
+    --divider: rgba(95,216,232,0.14);
+    --row-hover: rgba(95,216,232,0.08);
+    --row-active: rgba(95,216,232,0.16);
+    --topic-bg: rgba(95,216,232,0.08);
+    --topic-border: rgba(95,216,232,0.20);
+    --topic-text: #aef0fa;
+    --input-bg: rgba(8,14,28,0.7);
+    --input-border: rgba(95,216,232,0.22);
+    --input-focus: rgba(95,216,232,0.6);
+    --hint-text: #5e7895;
+    --header-text: #b4cae3;
+    --top-band-bg: rgba(10,17,32,0.55);
+  }
+  body.light {
+    --bg-gradient: linear-gradient(180deg, #f7f4ed 0%, #efe9dc 100%);
+    --panel-bg: rgba(255,253,247,0.99);
+    --panel-border: rgba(60,80,120,0.22);
+    --panel-shadow: 0 10px 28px rgba(20,30,55,0.10);
+    --text-primary: #1a2030;
+    --text-secondary: #3a4658;
+    --text-tertiary: #525e72;
+    --text-muted: #6a7589;
+    --text-faint: #8c93a3;
+    --accent: #2a4a86;
+    --accent-bg: rgba(60,90,160,0.07);
+    --accent-bg-strong: rgba(60,90,160,0.14);
+    --accent-border: rgba(60,90,160,0.45);
+    --divider: rgba(40,60,100,0.12);
+    --row-hover: rgba(40,60,100,0.07);
+    --row-active: rgba(40,60,100,0.13);
+    --topic-bg: rgba(60,80,120,0.07);
+    --topic-border: rgba(60,80,120,0.22);
+    --topic-text: #2a4a86;
+    --input-bg: rgba(255,255,255,0.85);
+    --input-border: rgba(60,80,120,0.25);
+    --input-focus: rgba(60,90,160,0.5);
+    --hint-text: #7a8294;
+    --header-text: #2a3142;
+    --top-band-bg: rgba(255,253,247,0.65);
+  }
+
+  body {
+    background: var(--bg-gradient);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  }
+  #app { position: relative; width: 100vw; height: 100vh; }
+  #canvas { width: 100%; height: 100%; display: block; }
+
+  /* Unifying band across the top of the canvas so the title, pills, and search
+     read as one connected toolbar instead of three floating elements. */
+  #top-band {
+    position: absolute; top: 0; left: 0; right: 0; height: 72px;
+    background: linear-gradient(to bottom, var(--top-band-bg) 0%, transparent 100%);
+    border-bottom: 1px solid var(--divider);
+    backdrop-filter: blur(6px);
+    z-index: 5; pointer-events: none;
+  }
+  #header { position: absolute; top: 22px; left: 28px; z-index: 10; pointer-events: none; }
+  #header h1 {
+    margin: 0;
+    font-family: "ui-serif", "Charter", Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--header-text);
+    letter-spacing: -0.2px;
+    line-height: 1;
+  }
+  #header .sub { font-size: 11px; color: var(--text-muted); margin-top: 8px; letter-spacing: .3px; }
+
+  #legend {
+    position: absolute; bottom: 22px; left: 28px; z-index: 10;
+    display: flex; gap: 14px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; max-width: 60%;
+  }
+  #legend .item { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 3px 8px; border-radius: 12px; transition: background .15s, color .15s; }
+  #legend .item:hover { background: var(--row-hover); color: var(--text-primary); }
+  #legend .item.solo { background: var(--accent-bg-strong); color: var(--text-primary); }
+  #legend .item.muted { opacity: 0.35; }
+  #legend .dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
+  body.light #legend .dot { box-shadow: 0 0 4px rgba(0,0,0,0.15); }
+
+  /* Pills are grouped into a "segmented control" container so they read as one
+     toolbar element instead of disconnected floating buttons. */
+  #top-bar {
+    position: absolute; top: 22px; left: 50%; transform: translateX(-50%); z-index: 10;
+    display: flex; align-items: stretch;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: 14px; padding: 3px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  }
+  .chip {
+    background: transparent; border: none; color: var(--text-secondary);
+    font-size: 11px; padding: 6px 14px; border-radius: 11px; cursor: pointer;
+    font-family: inherit; letter-spacing: .3px; transition: all .15s;
+    display: flex; align-items: center;
+  }
+  .chip:hover { color: var(--text-primary); background: var(--row-hover); }
+  .chip.active { background: var(--accent-bg); color: var(--text-primary); }
+  .chip .count { color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+  .chip.active .count { color: var(--accent); }
+  .chip-divider { width: 1px; align-self: center; height: 16px; background: var(--divider); margin: 0 2px; }
+  /* Primary pill ("insights") keeps the slight color emphasis but stays inside
+     the segmented container, so it doesn't break the connected group. */
+  .chip.primary {
+    background: var(--accent-bg-strong);
+    color: var(--text-primary);
+    padding: 6px 16px;
+    font-weight: 500;
+    letter-spacing: .5px;
+  }
+  .chip.primary:hover { background: var(--accent-bg); }
+  .chip.primary.open { background: var(--accent-bg-strong); }
+  .chip.primary .count { color: var(--accent); font-weight: 500; }
+
+  #controls { position: absolute; bottom: 22px; right: 28px; z-index: 10; display: flex; gap: 8px; }
+  .btn {
+    background: var(--panel-bg); border: 1px solid var(--panel-border); color: var(--text-secondary);
+    font-size: 11px; padding: 7px 12px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; letter-spacing: .4px; transition: all .15s; backdrop-filter: blur(6px);
+  }
+  .btn:hover { background: var(--accent-bg); border-color: var(--accent-border); color: var(--text-primary); }
+
+  #search { position: absolute; top: 22px; right: 28px; z-index: 10; }
+  #search input {
+    background: var(--input-bg); border: 1px solid var(--input-border); color: var(--text-primary);
+    font-size: 12px; padding: 9px 14px; border-radius: 4px; width: 220px;
+    font-family: inherit; outline: none; backdrop-filter: blur(6px); transition: all .15s;
+  }
+  #search input:focus { border-color: var(--input-focus); width: 260px; }
+  #search input::placeholder { color: var(--text-faint); }
+
+  #panel {
+    position: absolute; top: 50%; right: 28px;
+    width: 340px; height: 70vh; overflow-y: auto;
+    background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 18px 20px 20px; z-index: 9;
+    transform: translate(380px, -50%); opacity: 0;
+    transition: transform .3s, opacity .3s; backdrop-filter: blur(14px);
+    box-shadow: var(--panel-shadow);
+  }
+  #panel.open { transform: translate(0, -50%); opacity: 1; }
+  #panel::-webkit-scrollbar { width: 5px; }
+  #panel::-webkit-scrollbar-thumb { background: var(--accent-border); border-radius: 3px; }
+  #panel .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  #panel .panel-title { font-size: 11px; font-weight: 500; color: var(--header-text); letter-spacing: 1.2px; text-transform: uppercase; }
+  #panel .close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; padding: 0; line-height: 1; transition: color .15s; }
+  #panel .close:hover { color: var(--text-primary); }
+  #panel .source-tag { display: inline-block; font-size: 10px; padding: 3px 10px; border-radius: 3px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; font-weight: 500; }
+  #panel h2 { font-size: 15px; font-weight: 500; margin: 4px 0 4px; color: var(--text-primary); line-height: 1.4; letter-spacing: -0.1px; }
+  #panel .meta { font-size: 11px; color: var(--text-muted); margin-bottom: 14px; letter-spacing: .3px; }
+  #panel .badge-bridge { display: inline-block; font-size: 10px; padding: 3px 9px; border-radius: 3px; background: var(--accent-bg-strong); border: 1px solid var(--accent-border); color: var(--accent); margin-left: 6px; letter-spacing: .8px; font-weight: 500; }
+  #panel .continue-btn {
+    display: block; width: 100%; margin: 14px 0 4px;
+    background: var(--accent-bg-strong);
+    border: 1px solid var(--accent-border); color: var(--text-primary);
+    font-size: 12px; padding: 11px 16px; border-radius: 5px; cursor: pointer;
+    font-family: inherit; letter-spacing: .3px; text-decoration: none; text-align: center;
+    transition: all .15s;
+  }
+  #panel .continue-btn:hover { background: var(--accent-bg); border-color: var(--accent); color: var(--text-primary); }
+  #panel .continue-btn .arrow { margin-left: 6px; }
+  #panel .continue-btn.disabled { background: var(--accent-bg); border-color: var(--divider); color: var(--text-muted); cursor: default; }
+  #panel .continue-btn.disabled:hover { background: var(--accent-bg); }
+  #panel .continue-fallback {
+    display: block; text-align: center; margin: 6px 0 0;
+    font-size: 11px; color: var(--text-tertiary); text-decoration: none; letter-spacing: .2px;
+  }
+  #panel .continue-fallback:hover { color: var(--accent); text-decoration: underline; }
+  #panel .local-hint { font-size: 11px; color: var(--text-faint); margin-top: 8px; font-family: ui-monospace, monospace; word-break: break-all; }
+  #panel .section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--divider); }
+  #panel .section:first-of-type { padding-top: 0; border-top: none; }
+  #panel .section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
+  #panel .topics { display: flex; flex-wrap: wrap; gap: 5px; }
+  #panel .topic-chip { font-size: 11px; padding: 3px 9px; border-radius: 3px; background: var(--topic-bg); border: 1px solid var(--topic-border); color: var(--topic-text); }
+  #panel .summary { font-size: 12.5px; line-height: 1.65; color: var(--text-secondary); }
+  #panel .preview { font-size: 12px; line-height: 1.55; color: var(--text-tertiary); font-style: italic; padding: 8px 10px; margin-left: -10px; border-left: 2px solid var(--accent-border); }
+  #panel .conn-item { font-size: 12px; padding: 6px 8px; margin: 1px -8px; border-radius: 3px; cursor: pointer; color: var(--text-secondary); transition: background .12s, color .12s; display: flex; align-items: center; gap: 8px; }
+  #panel .conn-item:hover { background: var(--row-hover); color: var(--text-primary); }
+  #panel .conn-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 6px currentColor; }
+  body.light #panel .conn-dot { box-shadow: 0 0 3px rgba(0,0,0,0.18); }
+
+  #tooltip {
+    position: absolute; pointer-events: none;
+    background: var(--panel-bg); border: 1px solid var(--accent-border); border-radius: 5px;
+    padding: 9px 13px; font-size: 12px; color: var(--text-primary);
+    opacity: 0; transition: opacity .12s; z-index: 20; max-width: 280px;
+    backdrop-filter: blur(10px); box-shadow: var(--panel-shadow); line-height: 1.5;
+  }
+  #tooltip .src { font-size: 10px; color: var(--text-tertiary); letter-spacing: .8px; text-transform: uppercase; }
+
+  #empty-hint {
+    position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: var(--hint-text); letter-spacing: .5px; pointer-events: none;
+    transition: opacity .3s; text-align: center; z-index: 10;
+  }
+  #empty-hint.hidden { opacity: 0; }
+
+  /* Insights panel — narrow but readable, centered vertically ------------ */
+  #insights {
+    position: absolute; top: 50%; left: 28px;
+    width: 320px; height: 70vh; overflow-y: auto;
+    background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 18px 20px 20px; z-index: 9;
+    transform: translate(-360px, -50%); opacity: 0;
+    transition: transform .3s, opacity .3s; backdrop-filter: blur(14px);
+    box-shadow: var(--panel-shadow);
+  }
+  #insights.open { transform: translate(0, -50%); opacity: 1; }
+  #insights::-webkit-scrollbar { width: 5px; }
+  #insights::-webkit-scrollbar-thumb { background: var(--accent-border); border-radius: 3px; }
+  #insights .insights-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  #insights h3 { margin: 0; font-size: 11px; font-weight: 500; color: var(--header-text); letter-spacing: 1.2px; text-transform: uppercase; }
+  #insights h4 { margin: 0; font-size: 10px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; color: var(--text-tertiary); }
+  #insights .x { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; transition: color .15s; }
+  #insights .x:hover { color: var(--text-primary); }
+  /* Segmented-control tabs to match the top toolbar — equal-width pills inside
+     a single bordered container with a raised "active" segment. */
+  #insights .tabs {
+    display: flex; gap: 2px; margin: 14px 0 14px;
+    background: var(--accent-bg); border: 1px solid var(--divider);
+    border-radius: 7px; padding: 3px;
+  }
+  #insights .tab {
+    flex: 1;
+    background: transparent; border: none; color: var(--text-secondary); cursor: pointer;
+    font-size: 11px; padding: 6px 4px; font-family: inherit; letter-spacing: .3px;
+    border-radius: 5px; transition: all .15s; text-align: center;
+  }
+  #insights .tab:hover { background: var(--row-hover); color: var(--text-primary); }
+  #insights .tab.active {
+    background: var(--panel-bg); color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  #insights .tab-body { display: none; padding: 0; }
+  #insights .tab-body.active { display: block; }
+  #insights .empty { color: var(--text-tertiary); font-size: 12px; padding: 8px 0 10px; line-height: 1.6; }
+  #insights .ctx-badge {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin: 0 0 10px;
+    padding: 7px 10px;
+    background: var(--accent-bg); border: 1px solid var(--divider);
+    border-radius: 5px;
+    font-size: 11px; color: var(--text-secondary);
+  }
+  #insights .ctx-badge .ctx-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); }
+  #insights .ctx-badge .ctx-name { font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  #insights .ctx-badge .ctx-clear { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 2px 6px; border-radius: 3px; font-family: inherit; flex-shrink: 0; }
+  #insights .ctx-badge .ctx-clear:hover { background: var(--row-hover); }
+
+  #insights .group {
+    border: 1px solid var(--divider); border-radius: 5px;
+    padding: 11px 12px 8px; margin: 8px 0; background: var(--accent-bg);
+  }
+  #insights .group .gh { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  #insights .group .gt { font-size: 12.5px; font-weight: 500; color: var(--text-primary); line-height: 1.4; }
+  #insights .group .gn { font-size: 10px; color: var(--text-tertiary); letter-spacing: .8px; flex-shrink: 0; margin-left: 8px; text-transform: uppercase; }
+  #insights .group .gm { font-size: 10.5px; color: var(--text-faint); margin-bottom: 6px; letter-spacing: .2px; }
+
+  #insights .row {
+    display: flex; align-items: center; gap: 9px; padding: 6px 9px; margin: 0 -9px;
+    border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary);
+    transition: background .12s, color .12s;
+  }
+  #insights .row:hover { background: var(--row-hover); color: var(--text-primary); }
+  #insights .row .d { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 5px currentColor; }
+  body.light #insights .row .d { box-shadow: 0 0 2px rgba(0,0,0,0.2); }
+  #insights .row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #insights .row .meta { font-size: 10px; color: var(--text-faint); flex-shrink: 0; }
+
+  /* Discover tab cards — styled like the prominent "continue this chat" button
+     in the conversation panel: accent-bg-strong fill, accent border, full-width,
+     hoverable. Each card is a button-like actionable. */
+  #insights .discovery {
+    display: block; width: 100%;
+    background: var(--accent-bg-strong);
+    border: 1px solid var(--accent-border);
+    border-radius: 5px;
+    padding: 12px 14px; margin: 8px 0;
+    text-align: left;
+    transition: all .15s;
+  }
+  #insights .discovery:hover { background: var(--accent-bg); border-color: var(--accent); }
+  #insights .discovery .dtitle {
+    font-size: 12.5px; font-weight: 500; color: var(--text-primary);
+    line-height: 1.4; margin-bottom: 6px;
+  }
+  #insights .discovery .dwhy {
+    font-size: 11.5px; line-height: 1.55; color: var(--text-secondary); margin-bottom: 8px;
+  }
+  #insights .discovery .drefs {
+    display: flex; flex-direction: column; gap: 1px;
+    margin: 0 -8px -4px; padding-top: 6px;
+    border-top: 1px solid var(--divider);
+  }
+  /* Match the .conn-item rows in the conversation panel — same compact button row */
+  #insights .discovery .dref {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 3px;
+    font-size: 12px; color: var(--text-secondary); cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  #insights .discovery .dref:hover { background: var(--row-hover); color: var(--text-primary); }
+  #insights .discovery .dref .d { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 5px currentColor; }
+  body.light #insights .discovery .dref .d { box-shadow: 0 0 2px rgba(0,0,0,0.2); }
+
+  #insights .gen-btn {
+    width: 100%; margin: 12px 0 4px;
+    background: var(--accent-bg-strong); border: 1px solid var(--accent-border); color: var(--text-primary);
+    font-size: 12px; padding: 9px 14px; border-radius: 5px; cursor: pointer; font-family: inherit;
+    transition: all .12s; font-weight: 500;
+  }
+  #insights .gen-btn:hover { background: var(--accent-bg); border-color: var(--accent); }
+  #insights .gen-btn:disabled { opacity: 0.5; cursor: default; }
+  #insights .gen-meta { font-size: 10px; color: var(--text-faint); margin-top: 6px; line-height: 1.5; text-align: center; }
+  #insights .gen-refresh {
+    background: none; border: none; color: var(--text-tertiary); font-size: 10.5px;
+    cursor: pointer; padding: 4px 6px; font-family: inherit;
+    margin-top: 6px;
+  }
+  #insights .gen-refresh:hover { color: var(--accent); }
+
+  /* Q&A tab */
+  #qa-content textarea {
+    width: 100%; min-height: 64px; resize: vertical;
+    background: var(--input-bg); border: 1px solid var(--input-border); color: var(--text-primary);
+    font-size: 12.5px; line-height: 1.55; padding: 10px 12px; border-radius: 5px;
+    font-family: inherit; outline: none;
+    transition: border-color .15s;
+  }
+  #qa-content textarea:focus { border-color: var(--input-focus); }
+  #qa-content textarea::placeholder { color: var(--text-faint); }
+  #qa-content .qa-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  #qa-content .qa-submit {
+    flex: 1; background: var(--accent-bg-strong); border: 1px solid var(--accent-border); color: var(--text-primary);
+    font-size: 12px; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-family: inherit;
+    transition: all .12s; font-weight: 500;
+  }
+  #qa-content .qa-submit:hover { background: var(--accent-bg); border-color: var(--accent); }
+  #qa-content .qa-submit:disabled { background: var(--accent-bg); border-color: var(--divider); color: var(--text-muted); cursor: default; }
+  #qa-content .qa-key-edit { background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 10.5px; padding: 0; }
+  #qa-content .qa-key-edit:hover { color: var(--accent); }
+  #qa-content .qa-keyform { padding: 14px; border: 1px solid var(--accent-border); border-radius: 5px; margin-top: 10px; background: var(--accent-bg); }
+  #qa-content .qa-keyform p { font-size: 11.5px; color: var(--text-tertiary); line-height: 1.6; margin: 0 0 10px; }
+  #qa-content .qa-keyform input { width: 100%; background: var(--input-bg); border: 1px solid var(--input-border); color: var(--text-primary); font-size: 12px; padding: 8px 10px; border-radius: 4px; font-family: ui-monospace, monospace; outline: none; }
+  #qa-content .qa-keyform input:focus { border-color: var(--input-focus); }
+  #qa-content .qa-keyform .actions { display: flex; gap: 6px; margin-top: 10px; }
+  #qa-content .qa-keyform button {
+    background: transparent; border: 1px solid var(--panel-border); color: var(--text-secondary);
+    font-size: 11px; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-family: inherit;
+  }
+  #qa-content .qa-keyform button.primary { background: var(--accent-bg-strong); color: var(--text-primary); border-color: var(--accent-border); }
+  #qa-content .qa-status { font-size: 10.5px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.5; }
+  #qa-content .qa-status.error { color: #d04a5a; }
+  body.light #qa-content .qa-status.error { color: #b03a4a; }
+  #qa-content .qa-answer { margin-top: 10px; font-size: 12px; line-height: 1.6; color: var(--text-primary); white-space: pre-wrap; word-wrap: break-word; }
+  #qa-content .qa-sources { margin-top: 10px; }
+  #qa-content .qa-sources .lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 4px; font-weight: 500; }
+  #qa-content .qa-disclaimer { font-size: 9.5px; color: var(--text-faint); margin-top: 10px; line-height: 1.55; padding-top: 8px; border-top: 1px solid var(--divider); }
+
+  #err-banner {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #ff0040; color: #fff; padding: 10px 14px;
+    font-family: ui-monospace, monospace; font-size: 12px;
+    z-index: 9999; display: none; white-space: pre-wrap;
+    max-height: 220px; overflow: auto;
+  }
+
+  /* ── Guided tour ──────────────────────────────────────────────────────── */
+  #tour-mask { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
+  #tour-mask.show { display: block; }
+  #tour-mask.show.interactive { pointer-events: auto; }
+  #tour-tooltip {
+    position: fixed; z-index: 51;
+    background: rgba(8,14,28,0.96);
+    border: 1px solid rgba(174,240,250,0.5);
+    border-radius: 6px;
+    padding: 16px 18px 14px;
+    color: #e3eef9;
+    font-size: 13px; line-height: 1.5;
+    max-width: 320px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    display: none;
+  }
+  #tour-tooltip.show { display: block; }
+  #tour-tooltip h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: #aef0fa; letter-spacing: .5px; }
+  #tour-tooltip p { margin: 0; color: #cfe2f3; }
+  #tour-tooltip .step-meta { font-size: 10px; color: #6da4a8; margin-top: 10px; letter-spacing: .8px; text-transform: uppercase; }
+  #tour-tooltip .actions { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+  #tour-tooltip button {
+    background: rgba(15,25,45,0.6); border: 1px solid rgba(174,240,250,0.3); color: #cfe2f3;
+    font-size: 11px; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; letter-spacing: .3px;
+    transition: all .12s;
+  }
+  #tour-tooltip button:hover { background: rgba(95,216,232,0.15); border-color: rgba(174,240,250,0.6); }
+  #tour-tooltip button.primary { background: rgba(174,240,250,0.2); color: #fff; border-color: rgba(174,240,250,0.7); }
+  #tour-tooltip button.primary:hover { background: rgba(174,240,250,0.32); }
+  #tour-tooltip button.skip { color: #6da4a8; border-color: transparent; }
+  #tour-tooltip button.skip:hover { color: #cfe2f3; }
+</style>
+</head>
+<body>
+<div id="err-banner"></div>
+<div id="app">
+  <canvas id="canvas"></canvas>
+  <div id="top-band"></div>
+
+  <div id="header">
+    <h1>Your Claude</h1>
+    <div class="sub" id="stats">__STATS__</div>
+  </div>
+
+  <div id="top-bar">
+    <button class="chip primary" id="insights-toggle">✦ insights <span class="count" id="insights-count"></span></button>
+    <span class="chip-divider"></span>
+    <button class="chip active" id="chats-toggle">chats <span class="count" id="chats-count"></span></button>
+    __SOURCE_CHIPS__
+  </div>
+
+  <div id="search"><input type="text" id="search-input" placeholder="search conversations…" /></div>
+
+  <div id="legend">__LEGEND__</div>
+
+  <div id="controls">
+    <button class="btn" id="tour-button" title="show guided tour">?</button>
+    <button class="btn" id="theme-toggle" title="toggle dark/light theme">theme: dark</button>
+    <button class="btn" id="reset-view">reset view</button>
+    <button class="btn" id="toggle-bridges">bridges: on</button>
+    <button class="btn" id="auto-rotate">auto-rotate: off</button>
+  </div>
+
+  <div id="insights">
+    <div class="insights-head">
+      <h3>insights</h3>
+      <button class="x" id="insights-close">×</button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="discover">discover</button>
+      <button class="tab" data-tab="ask">ask</button>
+      <button class="tab" data-tab="stuck">stuck patterns</button>
+      <button class="tab" data-tab="gold">forgotten gold</button>
+      <button class="tab" data-tab="clusters">clusters</button>
+    </div>
+    <div class="tab-body active" id="tab-discover"></div>
+    <div class="tab-body" id="tab-ask">
+      <div id="qa-content"></div>
+    </div>
+    <div class="tab-body" id="tab-stuck"></div>
+    <div class="tab-body" id="tab-gold"></div>
+    <div class="tab-body" id="tab-clusters"></div>
+  </div>
+
+  <div id="panel">
+    <div class="panel-head">
+      <span class="panel-title">conversation</span>
+      <button class="close" id="panel-close">×</button>
+    </div>
+    <span class="source-tag" id="panel-source"></span>
+    <span class="badge-bridge" id="panel-bridge" style="display:none">bridge</span>
+    <h2 id="panel-title"></h2>
+    <div class="meta" id="panel-meta"></div>
+    <a id="panel-continue" class="continue-btn"></a>
+    <a id="panel-continue-fallback" class="continue-fallback" target="_blank" rel="noopener noreferrer" style="display:none"></a>
+    <div class="local-hint" id="panel-local-hint" style="display:none"></div>
+    <div class="section"><div class="section-label">topics</div><div class="topics" id="panel-topics"></div></div>
+    <div class="section"><div class="section-label">first message</div><div class="preview" id="panel-preview"></div></div>
+    <div class="section"><div class="section-label">summary</div><div class="summary" id="panel-summary"></div></div>
+    <div class="section"><div class="section-label" id="panel-conn-label">connections</div><div id="panel-connections"></div></div>
+    <div class="section" id="panel-repeats-section" style="display:none">
+      <div class="section-label">similar opening prompts</div>
+      <div id="panel-repeats"></div>
+    </div>
+  </div>
+
+  <div id="tooltip"></div>
+  <div id="empty-hint">drag to rotate · scroll to zoom · click a star to open</div>
+
+  <!-- Guided tour overlay -->
+  <svg id="tour-mask" width="100%" height="100%" preserveAspectRatio="none">
+    <defs>
+      <mask id="tour-hole">
+        <rect width="100%" height="100%" fill="white"/>
+        <rect id="tour-hole-rect" x="0" y="0" width="0" height="0" rx="8" ry="8" fill="black"/>
+      </mask>
+    </defs>
+    <rect width="100%" height="100%" fill="rgba(2,4,12,0.78)" mask="url(#tour-hole)"/>
+    <rect id="tour-highlight-rect" x="0" y="0" width="0" height="0" rx="8" ry="8"
+          fill="none" stroke="rgba(174,240,250,0.85)" stroke-width="1.5" stroke-dasharray="6 4" />
+  </svg>
+  <div id="tour-tooltip">
+    <h3 id="tour-title"></h3>
+    <p id="tour-body"></p>
+    <div class="step-meta" id="tour-meta"></div>
+    <div class="actions">
+      <button class="skip" id="tour-skip">skip</button>
+      <button id="tour-prev">back</button>
+      <button class="primary" id="tour-next">next</button>
+    </div>
+  </div>
+</div>
+
+<script>
+window.addEventListener("error", function(e) {
+  if ((e.message || "").trim() === "Script error." && !e.filename) return;
+  var b = document.getElementById("err-banner");
+  b.style.display = "block";
+  b.textContent = "JS ERROR\n" + e.message + "\n  at " + (e.filename||"?") + ":" + (e.lineno||"?") + ":" + (e.colno||"?") + "\n" + (e.error && e.error.stack || "");
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+
+if (typeof THREE === "undefined") {
+  document.getElementById("err-banner").style.display = "block";
+  document.getElementById("err-banner").textContent = "three.js failed to load from cdnjs. Check internet/adblocker.";
+  throw new Error("THREE missing");
+}
+
+const GRAPH = __GRAPH_JSON__;
+const sourceColors = { Code: "#3a8fb7", Cowork: "#b73a8a", Web: "#b78a3a", Local: "#666666" };
+const clusterMap = Object.fromEntries(GRAPH.clusters.map(c => [c.id, c]));
+const nodes = GRAPH.nodes.map(n => ({...n}));
+const nodeById = Object.fromEntries(nodes.map(n => [n.id, n]));
+const links = GRAPH.edges.map(e => ({ source: e.source, target: e.target, weight: e.weight || 1, type: e.type || "intra" }));
+
+// ---- THREE setup -------------------------------------------------------
+const canvas = document.getElementById("canvas");
+const scene = new THREE.Scene();
+scene.background = null;  // let CSS gradient show through
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 8000);
+camera.position.set(0, 0, 900);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+// Soft fog so far nodes fade into the deep
+scene.fog = new THREE.Fog(0x050813, 1200, 2400);
+
+// ---- Soft glow texture for sprite halos --------------------------------
+function makeGlowTexture(size) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  g.addColorStop(0,    "rgba(255,255,255,1)");
+  g.addColorStop(0.2,  "rgba(255,255,255,0.5)");
+  g.addColorStop(0.5,  "rgba(255,255,255,0.12)");
+  g.addColorStop(1,    "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+const glowTex = makeGlowTexture(128);
+const starTex = makeGlowTexture(64);
+
+// ---- Background starfield ----------------------------------------------
+let stars;
+(function buildStarfield(){
+  const positions = [];
+  for (let i = 0; i < 1200; i++) {
+    const r = 2200 + Math.random() * 600;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const theta = Math.random() * Math.PI * 2;
+    positions.push(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.sin(phi) * Math.sin(theta),
+      r * Math.cos(phi)
+    );
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    map: starTex,
+    color: 0xffffff,
+    size: 4,
+    transparent: true,
+    opacity: 0.7,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  stars = new THREE.Points(geo, mat);
+  scene.add(stars);
+})();
+
+// ---- Position nodes on per-cluster sub-spheres -------------------------
+const usedClusters = Array.from(new Set(nodes.map(n => n.cluster)));
+const clusterCenters = {};
+const R = 420;
+usedClusters.forEach((c, i) => {
+  const phi = Math.acos(1 - 2 * (i + 0.5) / usedClusters.length);
+  const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+  clusterCenters[c] = new THREE.Vector3(
+    R * Math.sin(phi) * Math.cos(theta),
+    R * Math.sin(phi) * Math.sin(theta),
+    R * Math.cos(phi),
+  );
+});
+
+// Each cluster has a small local radius based on member count
+const clusterMembers = {};
+nodes.forEach(n => { (clusterMembers[n.cluster] = clusterMembers[n.cluster] || []).push(n); });
+
+nodes.forEach(n => {
+  const center = clusterCenters[n.cluster];
+  const k = clusterMembers[n.cluster].length;
+  const localR = 30 + Math.min(120, k * 4);
+  // Random point inside a sphere around the cluster center
+  let dx, dy, dz;
+  do {
+    dx = (Math.random() - 0.5) * 2;
+    dy = (Math.random() - 0.5) * 2;
+    dz = (Math.random() - 0.5) * 2;
+  } while (dx*dx + dy*dy + dz*dz > 1);
+  n.x = center.x + dx * localR;
+  n.y = center.y + dy * localR;
+  n.z = center.z + dz * localR;
+});
+
+// ---- Pre-compute connection count per node (used for bridge halo sizing) --
+const connCount = {};
+links.forEach(l => {
+  const sId = (l.source && l.source.id) || l.source;
+  const tId = (l.target && l.target.id) || l.target;
+  connCount[sId] = (connCount[sId] || 0) + 1;
+  connCount[tId] = (connCount[tId] || 0) + 1;
+});
+
+// ---- Build node visuals ------------------------------------------------
+const nodeGroup = new THREE.Group();
+scene.add(nodeGroup);
+
+const nodeMeshes = [];  // for raycasting
+
+function hexToRgb(hex) {
+  const v = hex.replace("#", "");
+  return {
+    r: parseInt(v.slice(0,2), 16) / 255,
+    g: parseInt(v.slice(2,4), 16) / 255,
+    b: parseInt(v.slice(4,6), 16) / 255,
+  };
+}
+
+nodes.forEach(n => {
+  const c = clusterMap[n.cluster] || { color: "#888", light: "#ccc" };
+  const colorMain = new THREE.Color(c.color);
+  const colorLight = new THREE.Color(c.light);
+  const sizeFactor = Math.max(1, Math.min(2.4, 1 + n.messages / 50));
+  const isBridge = !!n.is_bridge;
+
+  const group = new THREE.Group();
+  group.position.set(n.x, n.y, n.z);
+
+  // Outermost halo (very soft, additive blend)
+  const haloMat = new THREE.SpriteMaterial({
+    map: glowTex, color: colorMain, transparent: true, opacity: 0.18,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const halo = new THREE.Sprite(haloMat);
+  const haloSize = 36 * sizeFactor * (isBridge ? 1.3 : 1);
+  halo.scale.set(haloSize, haloSize, 1);
+  group.add(halo);
+
+  // Mid layer
+  const midMat = new THREE.SpriteMaterial({
+    map: glowTex, color: colorMain, transparent: true, opacity: 0.42,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const mid = new THREE.Sprite(midMat);
+  const midSize = 14 * sizeFactor;
+  mid.scale.set(midSize, midSize, 1);
+  group.add(mid);
+
+  // Bright core
+  const coreMat = new THREE.SpriteMaterial({
+    map: glowTex, color: colorLight, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const core = new THREE.Sprite(coreMat);
+  const coreSize = 5 * sizeFactor;
+  core.scale.set(coreSize, coreSize, 1);
+  group.add(core);
+
+  // Track the natural core color so selection/deselection can restore it
+  group.userData.baseCoreColor = colorLight.clone();
+
+  // Bridge halo — same color as the cluster, size scales with how many connections this chat has.
+  // Drawn as an extra wider sprite using the existing glow texture and additive blending.
+  if (isBridge) {
+    const conns = connCount[n.id] || 0;
+    const outerSize = haloSize + 18 + conns * 3.5;
+    const outerMat = new THREE.SpriteMaterial({
+      map: glowTex, color: colorMain, transparent: true, opacity: 0.22,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const outer = new THREE.Sprite(outerMat);
+    outer.scale.set(outerSize, outerSize, 1);
+    group.add(outer);
+    group.userData.bridgeHaloMat = outerMat;
+    group.userData.bridgeHaloBaseOpacity = 0.22;
+  }
+
+  group.userData.node = n;
+  group.userData.coreMat = coreMat;
+  group.userData.midMat = midMat;
+  group.userData.haloMat = haloMat;
+  group.userData.baseHaloOpacity = 0.18;
+  group.userData.baseMidOpacity = 0.42;
+  // Invisible larger sphere just for click detection — makes the click target
+  // generous and consistent regardless of how dim/small the visible sprite is.
+  const hitGeo = new THREE.SphereGeometry(16 * sizeFactor + (isBridge ? 8 : 0), 8, 8);
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+  group.add(hitMesh);
+
+  nodeMeshes.push(group);
+  nodeGroup.add(group);
+  n._mesh = group;
+});
+
+// ---- Build edge visuals ------------------------------------------------
+const edgeGroup = new THREE.Group();
+scene.add(edgeGroup);
+const edgeObjs = [];
+
+let bridgesOn = true;
+
+function buildEdges() {
+  // Clear old
+  while (edgeGroup.children.length) edgeGroup.remove(edgeGroup.children[0]);
+  edgeObjs.length = 0;
+
+  links.forEach(l => {
+    const sN = nodeById[(l.source && l.source.id) || l.source];
+    const tN = nodeById[(l.target && l.target.id) || l.target];
+    if (!sN || !tN) return;
+    const positions = new Float32Array([sN.x, sN.y, sN.z, tN.x, tN.y, tN.z]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    let color, opacity;
+    if (l.type === "bridge") { color = 0xaef0fa; opacity = 0.45; }
+    else if (l.type === "temporal") { color = 0x7e89c0; opacity = 0.30; }
+    else { color = new THREE.Color(clusterMap[sN.cluster] ? clusterMap[sN.cluster].color : "#5a7da3").getHex(); opacity = 0.55; }
+    const mat = new THREE.LineBasicMaterial({
+      color, transparent: true, opacity,
+      blending: l.type === "bridge" ? THREE.AdditiveBlending : THREE.NormalBlending,
+      depthWrite: false,
+    });
+    const line = new THREE.Line(geo, mat);
+    line.userData.link = l;
+    line.userData.baseOpacity = opacity;
+    edgeGroup.add(line);
+    edgeObjs.push(line);
+  });
+}
+buildEdges();
+
+// ---- Orbit-style camera control (drag rotate, wheel zoom, right-drag pan) ----
+const target = new THREE.Vector3(0, 0, 0);
+let radius = 900;
+let theta = 0;        // azimuth
+let phi = Math.PI / 2; // polar
+let panOffset = new THREE.Vector3(0, 0, 0);
+
+function updateCamera() {
+  const x = target.x + radius * Math.sin(phi) * Math.cos(theta) + panOffset.x;
+  const y = target.y + radius * Math.cos(phi) + panOffset.y;
+  const z = target.z + radius * Math.sin(phi) * Math.sin(theta) + panOffset.z;
+  camera.position.set(x, y, z);
+  camera.lookAt(target.x + panOffset.x, target.y + panOffset.y, target.z + panOffset.z);
+}
+updateCamera();
+
+let dragging = null;
+let lastX = 0, lastY = 0;
+let autoRotate = false;
+
+canvas.addEventListener("pointerdown", (e) => {
+  dragging = e.button === 2 || e.shiftKey ? "pan" : "rotate";
+  lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  if (dragging === "rotate") {
+    theta -= dx * 0.005;
+    phi   -= dy * 0.005;
+    phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+  } else {
+    const factor = radius * 0.0015;
+    panOffset.x -= dx * factor;
+    panOffset.y += dy * factor;
+  }
+  updateCamera();
+});
+canvas.addEventListener("pointerup", () => { dragging = null; });
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  radius *= e.deltaY > 0 ? 1.1 : 0.9;
+  // Cap max zoom-out so the constellation always fills a reasonable portion
+  // of the view; the cluster sphere has radius ~420, anything past 1500 makes
+  // it look like a tiny dot in the dark.
+  radius = Math.max(80, Math.min(1500, radius));
+  updateCamera();
+}, { passive: false });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+// ---- Click-to-select via raycasting ------------------------------------
+const raycaster = new THREE.Raycaster();
+const mouseV = new THREE.Vector2();
+let hovered = null;
+let dragMoved = 0;
+let pressX = 0, pressY = 0;
+
+canvas.addEventListener("pointerdown", e => { pressX = e.clientX; pressY = e.clientY; dragMoved = 0; });
+canvas.addEventListener("pointermove", e => { if (dragging) dragMoved += Math.abs(e.movementX) + Math.abs(e.movementY); });
+
+canvas.addEventListener("click", (e) => {
+  // Loosened threshold so trembly trackpad clicks still register as clicks, not drags.
+  if (dragMoved > 14) return;
+  pickAt(e.clientX, e.clientY, true);
+});
+canvas.addEventListener("mousemove", (e) => {
+  pickAt(e.clientX, e.clientY, false);
+});
+
+// Screen-distance picker — projects each node's 3D center to screen coords and
+// picks the one closest to the cursor. This avoids the "halo blocks the dot
+// behind it" problem that 3D raycasting on overlapping sprites causes.
+const _projV = new THREE.Vector3();
+function pickAt(cx, cy, isClick) {
+  const W = window.innerWidth, H = window.innerHeight;
+  const MAX_PIXEL_HIT = 48;  // generous hit radius in screen pixels
+  let bestNode = null;
+  let bestScore = Infinity;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const m = n._mesh;
+    if (!m || !m.visible) continue;
+    _projV.set(n.x, n.y, n.z).project(camera);
+    if (_projV.z < -1 || _projV.z > 1) continue;  // behind camera or clipped
+    const sx = (_projV.x + 1) * 0.5 * W;
+    const sy = (-_projV.y + 1) * 0.5 * H;
+    const dx = sx - cx;
+    const dy = sy - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > MAX_PIXEL_HIT) continue;
+    // Tie-break: prefer the node that's closer to the camera (smaller depth)
+    // so dots in front win over those behind when the click is equally close to both.
+    const score = dist + _projV.z * 12;
+    if (score < bestScore) {
+      bestScore = score;
+      bestNode = m;
+    }
+  }
+
+  if (bestNode) {
+    if (isClick) selectNodeMesh(bestNode);
+    else setHover(bestNode, cx, cy);
+  } else {
+    if (isClick) closePanel();
+    setHover(null);
+  }
+}
+
+const tip = document.getElementById("tooltip");
+
+// (connCount was already computed above for bridge halo sizing — reused here)
+
+function setHover(g, cx, cy) {
+  if (hovered && hovered !== g) {
+    hovered.userData.hoverScale = 1;
+  }
+  hovered = g;
+  if (g) {
+    g.userData.hoverScale = 1.45;
+    const n = g.userData.node;
+    const cl = clusterMap[n.cluster];
+    const cc = connCount[n.id] || 0;
+    tip.innerHTML =
+      '<div class="src">' + n.source + ' · ' + n.date + (n.is_bridge ? ' · bridge' : '') + '</div>' +
+      n.title +
+      '<div style="font-size:10px;color:#8aa1bd;margin-top:4px;display:flex;gap:8px">' +
+        (cl ? '<span>' + cl.name + '</span>' : '') +
+        '<span>·</span>' +
+        '<span>' + cc + ' connection' + (cc === 1 ? '' : 's') + '</span>' +
+        '<span>·</span>' +
+        '<span>' + n.messages + ' messages</span>' +
+      '</div>';
+    tip.style.opacity = 1;
+    tip.style.left = (cx + 14) + "px";
+    tip.style.top = (cy + 14) + "px";
+  } else {
+    tip.style.opacity = 0;
+  }
+}
+
+// ---- selection panel ---------------------------------------------------
+const panel = document.getElementById("panel");
+const hint = document.getElementById("empty-hint");
+let selected = null;
+
+function selectNodeMesh(g) {
+  // Restore previous selection's core color to whatever the current theme baseline is
+  if (selected && selected !== g) {
+    selected.userData.coreMat.color.copy(selected.userData.baseCoreColor);
+  }
+  selected = g;
+  // Selection highlight: white in dark mode (pops on dark sky), bright accent blue in light mode
+  const highlightHex = currentTheme === "light" ? 0x1c3f8a : 0xffffff;
+  g.userData.coreMat.color.setHex(highlightHex);
+  // Camera fly-to — close in so the selected star is center stage
+  const n = g.userData.node;
+  // Use the cluster-centroid direction so we look "down" at the node from outside
+  // the sphere instead of from a random angle. Distance is now small (~85) so the
+  // node bloom fills a large portion of the view.
+  const center = clusterCenters[n.cluster] || new THREE.Vector3(0, 0, 0);
+  const dir = new THREE.Vector3(
+    n.x - center.x,
+    n.y - center.y,
+    n.z - center.z
+  );
+  if (dir.lengthSq() < 1) {
+    // node is at the cluster centroid — use the centroid's outward direction
+    dir.copy(center).normalize();
+  } else {
+    dir.normalize();
+  }
+  const camDist = 85;
+  const tx = n.x + dir.x * camDist;
+  const ty = n.y + dir.y * camDist;
+  const tz = n.z + dir.z * camDist;
+  flyTo(tx, ty, tz, n.x, n.y, n.z, 800);
+  populatePanel(n);
+  panel.classList.add("open");
+  hint.classList.add("hidden");
+  // Open the insights panel on the left so the user sees analysis context next
+  // to the selected chat's detail panel on the right.
+  toggleInsights(true);
+  // Refresh insights tabs to filter to this chat
+  setInsightsContext({ nodeId: n.id, clusterId: null });
+}
+
+function flyTo(cx, cy, cz, lx, ly, lz, ms) {
+  const startCam = camera.position.clone();
+  const startTarget = target.clone();
+  const endCam = new THREE.Vector3(cx, cy, cz);
+  const endTarget = new THREE.Vector3(lx, ly, lz);
+  const t0 = performance.now();
+  function step() {
+    const t = Math.min(1, (performance.now() - t0) / ms);
+    const ease = t < 0.5 ? 2*t*t : -1 + (4 - 2*t) * t;
+    camera.position.lerpVectors(startCam, endCam, ease);
+    target.lerpVectors(startTarget, endTarget, ease);
+    radius = camera.position.distanceTo(target);
+    // recompute spherical from camera position to target so subsequent drags work
+    const off = camera.position.clone().sub(target);
+    radius = off.length();
+    theta = Math.atan2(off.z, off.x);
+    phi = Math.acos(off.y / radius);
+    camera.lookAt(target);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+function populatePanel(d) {
+  const c = clusterMap[d.cluster] || {color:"#888", light:"#ccc", name:"Unknown"};
+  const sc = sourceColors[d.source] || "#666";
+  const tag = document.getElementById("panel-source");
+  tag.textContent = d.source;
+  tag.style.background = sc + "22";
+  tag.style.color = c.light;
+  tag.style.border = "1px solid " + sc + "88";
+  document.getElementById("panel-bridge").style.display = d.is_bridge ? null : "none";
+  document.getElementById("panel-title").textContent = d.title;
+  const dateLabel = d.last_date && d.last_date !== d.date ? (d.date + " → " + d.last_date) : d.date;
+  document.getElementById("panel-meta").textContent = c.name + " · " + dateLabel + " · " + d.messages + " messages";
+
+  // "Continue this chat" link — primary opens Claude desktop app, fallback to browser
+  const cont = document.getElementById("panel-continue");
+  const fb = document.getElementById("panel-continue-fallback");
+  const hint = document.getElementById("panel-local-hint");
+  hint.style.display = "none";
+  fb.style.display = "none";
+  cont.classList.remove("disabled");
+  cont.removeAttribute("target");
+  if (d.source === "Web" && d.id && d.id.indexOf("web:") === 0) {
+    const uuid = d.id.slice(4);
+    // Claude desktop registers the claude:// scheme on macOS; the URL after it
+    // mirrors the web URL so existing chats resolve to the same conversation.
+    cont.href = "claude://claude.ai/chat/" + uuid;
+    cont.style.display = "block";
+    cont.innerHTML = 'continue in Claude desktop <span class="arrow">↗</span>';
+    fb.href = "https://claude.ai/chat/" + uuid;
+    fb.target = "_blank";
+    fb.style.display = "block";
+    fb.textContent = "or open in browser ↗";
+  } else if (d.source === "Code" || d.source === "Cowork") {
+    cont.removeAttribute("href");
+    cont.classList.add("disabled");
+    cont.style.display = "block";
+    cont.innerHTML = 'local session — open ' + (d.source === "Code" ? "Claude Code" : "Cowork") + ' to continue';
+    hint.style.display = "block";
+    const sessionId = (d.id || "").split(":").pop();
+    hint.textContent = (d.project ? "project: " + d.project + "  ·  " : "") + "session: " + sessionId;
+  } else {
+    cont.style.display = "none";
+  }
+
+  const topicsDiv = document.getElementById("panel-topics");
+  topicsDiv.innerHTML = "";
+  (d.topics || []).forEach(t => {
+    const span = document.createElement("span");
+    span.className = "topic-chip"; span.textContent = t;
+    topicsDiv.appendChild(span);
+  });
+  document.getElementById("panel-preview").textContent = d.preview || "(no preview)";
+  document.getElementById("panel-summary").textContent = d.summary || "(no summary)";
+
+  const conns = links.filter(l => {
+    const sId = (l.source && l.source.id) || l.source;
+    const tId = (l.target && l.target.id) || l.target;
+    return sId === d.id || tId === d.id;
+  });
+  document.getElementById("panel-conn-label").textContent = "connections (" + conns.length + ")";
+  const connDiv = document.getElementById("panel-connections");
+  connDiv.innerHTML = "";
+  conns.forEach(l => {
+    const sId = (l.source && l.source.id) || l.source;
+    const tId = (l.target && l.target.id) || l.target;
+    const otherId = sId === d.id ? tId : sId;
+    const other = nodeById[otherId];
+    if (!other) return;
+    const item = document.createElement("div");
+    item.className = "conn-item";
+    const dot = document.createElement("span"); dot.className = "conn-dot";
+    const oc = clusterMap[other.cluster];
+    if (oc) { dot.style.background = oc.color; dot.style.color = oc.color; }
+    item.appendChild(dot);
+    const txt = document.createElement("span"); txt.textContent = other.title;
+    item.appendChild(txt);
+    if (l.type === "bridge") {
+      const bt = document.createElement("span");
+      bt.style.cssText = "font-size:9px;color:#aef0fa;letter-spacing:.5px;margin-left:auto;text-transform:uppercase";
+      bt.textContent = "bridge"; item.appendChild(bt);
+    }
+    item.addEventListener("click", e => { e.stopPropagation(); selectNodeMesh(other._mesh); });
+    connDiv.appendChild(item);
+  });
+
+  const repeats = d.repeats || [];
+  const rs = document.getElementById("panel-repeats-section");
+  if (repeats.length > 0) {
+    rs.style.display = null;
+    const rc = document.getElementById("panel-repeats");
+    rc.innerHTML = "";
+    repeats.forEach(r => {
+      const other = nodeById[r[0]]; if (!other) return;
+      const item = document.createElement("div"); item.className = "conn-item";
+      const dot = document.createElement("span"); dot.className = "conn-dot";
+      const oc = clusterMap[other.cluster];
+      if (oc) { dot.style.background = oc.color; dot.style.color = oc.color; }
+      item.appendChild(dot);
+      const txt = document.createElement("span");
+      txt.textContent = other.title + "  ·  " + Math.round(r[1] * 100) + "% similar";
+      item.appendChild(txt);
+      item.addEventListener("click", e => { e.stopPropagation(); selectNodeMesh(other._mesh); });
+      rc.appendChild(item);
+    });
+  } else { rs.style.display = "none"; }
+}
+
+function closePanel() {
+  panel.classList.remove("open");
+  if (selected) {
+    selected.userData.coreMat.color.copy(selected.userData.baseCoreColor);
+    selected = null;
+  }
+  // Reset insights to global scope (unless a cluster is soloed)
+  setInsightsContext(soloCluster ? { nodeId: null, clusterId: soloCluster } : null);
+}
+
+document.getElementById("panel-close").addEventListener("click", e => { e.stopPropagation(); closePanel(); });
+panel.addEventListener("click", e => e.stopPropagation());
+
+// ---- search / source filter pills --------------------------------------
+const activeSources = new Set(Object.keys(GRAPH.stats.by_source));
+let chatsVisible = true;
+document.getElementById("chats-count").textContent = nodes.length;
+
+function nodePassesAll(n) {
+  if (!chatsVisible) return false;
+  if (!activeSources.has(n.source)) return false;
+  if (searchQuery && !nodeMatchesSearch(n, searchQuery)) return false;
+  return true;
+}
+function applyVisibility() {
+  nodes.forEach(n => { n._mesh.visible = nodePassesAll(n); });
+  edgeObjs.forEach(line => {
+    const l = line.userData.link;
+    const sId = (l.source && l.source.id) || l.source;
+    const tId = (l.target && l.target.id) || l.target;
+    const sN = nodeById[sId], tN = nodeById[tId];
+    if (!sN || !tN) { line.visible = false; return; }
+    if (l.type === "bridge" && !bridgesOn) { line.visible = false; return; }
+    line.visible = sN._mesh.visible && tN._mesh.visible;
+  });
+}
+
+let searchQuery = "";
+function nodeMatchesSearch(n, q) {
+  return n.title.toLowerCase().includes(q)
+    || (n.topics || []).some(t => t.toLowerCase().includes(q))
+    || (n.preview || "").toLowerCase().includes(q)
+    || (n.summary || "").toLowerCase().includes(q)
+    || (n.cluster || "").toLowerCase().includes(q)
+    || n.source.toLowerCase().includes(q);
+}
+
+document.getElementById("search-input").addEventListener("input", function() {
+  searchQuery = this.value.toLowerCase().trim();
+  applyVisibility();
+});
+
+document.querySelectorAll(".chip[data-src]").forEach(el => {
+  el.addEventListener("click", function() {
+    const s = this.dataset.src;
+    if (activeSources.has(s)) { activeSources.delete(s); this.classList.remove("active"); }
+    else { activeSources.add(s); this.classList.add("active"); }
+    applyVisibility();
+  });
+});
+document.getElementById("chats-toggle").addEventListener("click", function() {
+  chatsVisible = !chatsVisible;
+  this.classList.toggle("active", chatsVisible);
+  applyVisibility();
+});
+document.getElementById("toggle-bridges").addEventListener("click", function() {
+  bridgesOn = !bridgesOn;
+  this.textContent = bridgesOn ? "bridges: on" : "bridges: off";
+  applyVisibility();
+});
+document.getElementById("auto-rotate").addEventListener("click", function() {
+  autoRotate = !autoRotate;
+  this.textContent = autoRotate ? "auto-rotate: on" : "auto-rotate: off";
+});
+document.getElementById("reset-view").addEventListener("click", function() {
+  flyTo(0, 0, 900, 0, 0, 0, 700);
+  panOffset.set(0, 0, 0);
+});
+
+// ---- resize ------------------------------------------------------------
+window.addEventListener("resize", function() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---- Insights panel (stuck patterns, forgotten gold, cluster digests) ---
+const insights = GRAPH.insights || {};
+
+function rowFor(nodeId, extraText) {
+  const n = nodeById[nodeId];
+  if (!n) return null;
+  const c = clusterMap[n.cluster] || {color:"#888"};
+  const row = document.createElement("div");
+  row.className = "row";
+  const dot = document.createElement("span"); dot.className = "d";
+  dot.style.background = c.color; dot.style.color = c.color;
+  row.appendChild(dot);
+  const t = document.createElement("span"); t.className = "t"; t.textContent = n.title;
+  row.appendChild(t);
+  if (extraText) {
+    const m = document.createElement("span"); m.className = "meta"; m.textContent = extraText;
+    row.appendChild(m);
+  }
+  row.addEventListener("click", () => selectNodeMesh(n._mesh));
+  return row;
+}
+
+// Current context: a selected node (highest priority) or a soloed cluster
+// determines which subset of data each tab renders. null = global.
+let insightsContext = { nodeId: null, clusterId: null };
+
+function ctxBadge(label, name, onClear) {
+  const wrap = document.createElement("div");
+  wrap.className = "ctx-badge";
+  const left = document.createElement("div");
+  left.style.cssText = "flex:1; min-width:0; display:flex; flex-direction:column; gap:2px";
+  const lbl = document.createElement("span"); lbl.className = "ctx-label"; lbl.textContent = label;
+  const nm = document.createElement("span"); nm.className = "ctx-name"; nm.textContent = name;
+  left.appendChild(lbl); left.appendChild(nm);
+  wrap.appendChild(left);
+  const btn = document.createElement("button");
+  btn.className = "ctx-clear"; btn.textContent = "show all";
+  btn.addEventListener("click", function(e){ e.stopPropagation(); onClear(); });
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+function renderStuckTab() {
+  const body = document.getElementById("tab-stuck");
+  body.innerHTML = "";
+  let groups = insights.repeat_clusters || [];
+
+  // Filter by context
+  if (insightsContext.nodeId) {
+    const sel = nodeById[insightsContext.nodeId];
+    if (sel) {
+      groups = groups.filter(g => g.members.some(m => m.id === sel.id));
+      body.appendChild(ctxBadge("filtered to chat", sel.title, clearInsightsContext));
+    }
+  } else if (insightsContext.clusterId) {
+    const c = clusterMap[insightsContext.clusterId];
+    if (c) {
+      groups = groups.filter(g => g.members.some(m => m.cluster === c.id));
+      body.appendChild(ctxBadge("filtered to cluster", c.name, clearInsightsContext));
+    }
+  }
+
+  if (groups.length === 0) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = insightsContext.nodeId || insightsContext.clusterId
+      ? "No repeat patterns in this scope."
+      : "No repeat-question patterns detected. You ask different things every time.";
+    body.appendChild(e);
+    return;
+  }
+  if (!insightsContext.nodeId && !insightsContext.clusterId) {
+    const intro = document.createElement("div");
+    intro.className = "empty";
+    intro.style.padding = "0 0 8px";
+    intro.textContent = "Conversations whose opening prompts are very similar.";
+    body.appendChild(intro);
+  }
+  groups.forEach(g => {
+    const wrap = document.createElement("div"); wrap.className = "group";
+    const head = document.createElement("div"); head.className = "gh";
+    const title = document.createElement("div"); title.className = "gt"; title.textContent = g.theme;
+    head.appendChild(title);
+    const num = document.createElement("div"); num.className = "gn"; num.textContent = g.size + "× asked";
+    head.appendChild(num);
+    wrap.appendChild(head);
+    const meta = document.createElement("div"); meta.className = "gm";
+    meta.textContent = g.first_date + (g.first_date !== g.last_date ? " → " + g.last_date : "");
+    wrap.appendChild(meta);
+    g.members.forEach(m => {
+      const r = rowFor(m.id, m.date);
+      if (r) wrap.appendChild(r);
+    });
+    body.appendChild(wrap);
+  });
+}
+
+function renderGoldTab() {
+  const body = document.getElementById("tab-gold");
+  body.innerHTML = "";
+  let list = insights.forgotten_gold || [];
+
+  if (insightsContext.nodeId) {
+    const sel = nodeById[insightsContext.nodeId];
+    if (sel) {
+      const selTopics = new Set(sel.topics || []);
+      list = list
+        .filter(g => g.id !== sel.id)
+        .map(g => {
+          const other = nodeById[g.id];
+          if (!other) return null;
+          const otherTopics = new Set(other.topics || []);
+          let overlap = 0;
+          selTopics.forEach(t => { if (otherTopics.has(t)) overlap++; });
+          return overlap > 0 ? { ...g, _overlap: overlap } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => b._overlap - a._overlap || b.score - a.score)
+        .slice(0, 10);
+      body.appendChild(ctxBadge("topic-related to", sel.title, clearInsightsContext));
+    }
+  } else if (insightsContext.clusterId) {
+    const c = clusterMap[insightsContext.clusterId];
+    if (c) {
+      list = list.filter(g => {
+        const n = nodeById[g.id];
+        return n && n.cluster === c.id;
+      });
+      body.appendChild(ctxBadge("filtered to cluster", c.name, clearInsightsContext));
+    }
+  }
+
+  if (list.length === 0) {
+    const e = document.createElement("div"); e.className = "empty";
+    e.textContent = insightsContext.nodeId || insightsContext.clusterId
+      ? "No forgotten-gold candidates in this scope."
+      : "No forgotten-gold candidates yet.";
+    body.appendChild(e);
+    return;
+  }
+  if (!insightsContext.nodeId && !insightsContext.clusterId) {
+    const intro = document.createElement("div");
+    intro.className = "empty";
+    intro.style.padding = "0 0 8px";
+    intro.textContent = "Long, substantive sessions you haven't opened in 30+ days.";
+    body.appendChild(intro);
+  }
+  list.forEach(g => {
+    const r = rowFor(g.id, g.messages + "m · " + g.days_ago + "d ago");
+    if (r) body.appendChild(r);
+  });
+}
+
+function renderClustersTab() {
+  const body = document.getElementById("tab-clusters");
+  body.innerHTML = "";
+  const digests = insights.cluster_digests || {};
+  let clusters = GRAPH.clusters.slice();
+
+  let highlightClusterId = null;
+  if (insightsContext.nodeId) {
+    const sel = nodeById[insightsContext.nodeId];
+    if (sel) {
+      highlightClusterId = sel.cluster;
+      body.appendChild(ctxBadge("chat's cluster shown first", sel.title, clearInsightsContext));
+      clusters.sort((a, b) => (a.id === sel.cluster ? -1 : 0) - (b.id === sel.cluster ? -1 : 0));
+    }
+  } else if (insightsContext.clusterId) {
+    const c = clusterMap[insightsContext.clusterId];
+    if (c) {
+      highlightClusterId = c.id;
+      clusters = [c];
+      body.appendChild(ctxBadge("showing only", c.name, clearInsightsContext));
+    }
+  }
+
+  if (!insightsContext.nodeId && !insightsContext.clusterId) {
+    const intro = document.createElement("div");
+    intro.className = "empty";
+    intro.style.padding = "0 0 8px";
+    intro.textContent = "Each cluster, with its top conversations.";
+    body.appendChild(intro);
+  }
+
+  clusters.forEach(c => {
+    const d = digests[c.id]; if (!d) return;
+    const wrap = document.createElement("div"); wrap.className = "group";
+    if (c.id === highlightClusterId) {
+      wrap.style.borderColor = "var(--accent-border)";
+    }
+    const head = document.createElement("div"); head.className = "gh";
+    const title = document.createElement("div"); title.className = "gt";
+    title.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + c.color + ';margin-right:8px;vertical-align:middle;box-shadow:0 0 6px ' + c.color + '"></span>' + c.name;
+    head.appendChild(title);
+    const num = document.createElement("div"); num.className = "gn"; num.textContent = d.count + " chats";
+    head.appendChild(num);
+    wrap.appendChild(head);
+    const meta = document.createElement("div"); meta.className = "gm";
+    meta.textContent = d.date_range[0] + (d.date_range[0] !== d.date_range[1] ? " → " + d.date_range[1] : "") + " · " + d.total_messages + " total messages";
+    wrap.appendChild(meta);
+    d.top_chats.forEach(m => {
+      const r = rowFor(m.id, m.messages + "m");
+      if (r) wrap.appendChild(r);
+    });
+    body.appendChild(wrap);
+  });
+}
+
+function renderAllInsightsTabs() {
+  renderDiscoverTab();
+  renderStuckTab();
+  renderGoldTab();
+  renderClustersTab();
+  renderQATab();
+  // The 'ask' tab also picks up context via its placeholder/suggestion — refresh
+  const ta = document.getElementById("qa-input");
+  if (ta) {
+    if (insightsContext.nodeId) {
+      const sel = nodeById[insightsContext.nodeId];
+      ta.placeholder = sel
+        ? `ask about "${sel.title.slice(0, 60)}…" or related chats`
+        : "what have I figured out about render performance?";
+    } else if (insightsContext.clusterId) {
+      const c = clusterMap[insightsContext.clusterId];
+      ta.placeholder = c
+        ? `ask about your ${c.name} chats`
+        : "what have I figured out about render performance?";
+    } else {
+      ta.placeholder = "what have I figured out about render performance?";
+    }
+  }
+}
+
+function setInsightsContext(ctx) {
+  insightsContext = ctx || { nodeId: null, clusterId: null };
+  renderAllInsightsTabs();
+}
+
+function clearInsightsContext() {
+  setInsightsContext(null);
+}
+
+// ---- Discover tab: AI-generated observations about the user's archive ------
+const DISCOVER_CACHE_KEY = "constellation_discoveries_v1";
+const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const DISCOVER_MODEL = "claude-haiku-4-5-20251001";
+
+function getCachedDiscoveries() {
+  try {
+    const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || !obj.discoveries) return null;
+    if (Date.now() - (obj.timestamp || 0) > DISCOVER_CACHE_TTL_MS) return null;
+    return obj;
+  } catch (e) { return null; }
+}
+
+function renderDiscoverTab() {
+  const body = document.getElementById("tab-discover");
+  if (!body) return;
+  body.innerHTML = "";
+
+  const cached = getCachedDiscoveries();
+  if (cached && cached.discoveries.length > 0) {
+    renderDiscoveryCards(body, cached.discoveries, cached.timestamp);
+  } else {
+    renderDiscoveryEmpty(body);
+  }
+}
+
+function renderDiscoveryEmpty(body) {
+  const intro = document.createElement("div");
+  intro.className = "empty";
+  intro.style.padding = "0 0 6px";
+  intro.textContent = "Surface things you've missed: abandoned threads, unfinished thinking, unexpected connections, natural next questions. Powered by Claude.";
+  body.appendChild(intro);
+
+  const btn = document.createElement("button");
+  btn.className = "gen-btn";
+  btn.textContent = qaGetKey() ? "generate discoveries" : "set API key to start";
+  btn.addEventListener("click", () => {
+    if (qaGetKey()) {
+      runDiscover(btn);
+    } else {
+      buildKeyForm(body, () => renderDiscoverTab());
+    }
+  });
+  body.appendChild(btn);
+
+  const meta = document.createElement("div");
+  meta.className = "gen-meta";
+  meta.textContent = qaGetKey()
+    ? "~1 Haiku call (≈$0.01–0.02). Cached for 24h."
+    : "Requires an Anthropic API key — you'll be prompted when you click above.";
+  body.appendChild(meta);
+}
+
+// Reusable inline API-key form. Calls onSaved after a successful save.
+function buildKeyForm(parentBody, onSaved) {
+  // Remove any existing form first
+  const existing = parentBody.querySelector(".inline-keyform");
+  if (existing) { existing.remove(); return null; }
+  const wrap = document.createElement("div");
+  wrap.className = "qa-keyform inline-keyform";
+  wrap.style.marginTop = "10px";
+  wrap.innerHTML = `
+    <p>Paste your Anthropic API key. Stored only in your browser; sent only to api.anthropic.com.</p>
+    <input type="password" placeholder="sk-ant-..." />
+    <div class="actions">
+      <button class="primary">save</button>
+      <button class="cancel">cancel</button>
+    </div>
+    <div class="qa-status" style="margin-top:6px">Get a key at console.anthropic.com</div>
+  `;
+  const input = wrap.querySelector("input");
+  input.value = qaGetKey();
+  wrap.querySelector(".primary").addEventListener("click", () => {
+    const v = input.value.trim();
+    qaSetKey(v);
+    if (onSaved) onSaved();
+  });
+  wrap.querySelector(".cancel").addEventListener("click", () => wrap.remove());
+  parentBody.appendChild(wrap);
+  setTimeout(() => input.focus(), 50);
+  return wrap;
+}
+
+function renderDiscoveryCards(body, discoveries, ts) {
+  discoveries.forEach(d => {
+    const card = document.createElement("div");
+    card.className = "discovery";
+    const t = document.createElement("div"); t.className = "dtitle"; t.textContent = d.title;
+    card.appendChild(t);
+    const w = document.createElement("div"); w.className = "dwhy"; w.textContent = d.why;
+    card.appendChild(w);
+    if (d.chat_ids && d.chat_ids.length) {
+      const refs = document.createElement("div"); refs.className = "drefs";
+      d.chat_ids.forEach(id => {
+        const n = nodeById[id];
+        if (!n) return;
+        const c = clusterMap[n.cluster] || { color: "#888" };
+        const ref = document.createElement("div");
+        ref.className = "dref";
+        const dot = document.createElement("span"); dot.className = "d";
+        dot.style.background = c.color; dot.style.color = c.color;
+        ref.appendChild(dot);
+        const txt = document.createElement("span"); txt.textContent = n.title;
+        txt.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0";
+        ref.appendChild(txt);
+        ref.addEventListener("click", () => selectNodeMesh(n._mesh));
+        refs.appendChild(ref);
+      });
+      card.appendChild(refs);
+    }
+    body.appendChild(card);
+  });
+
+  const refresh = document.createElement("button");
+  refresh.className = "gen-refresh";
+  const ageHours = Math.round((Date.now() - ts) / 3600000);
+  refresh.textContent = "↻ regenerate (cached " + (ageHours < 1 ? "<1h" : ageHours + "h") + " ago)";
+  refresh.addEventListener("click", () => {
+    try { localStorage.removeItem(DISCOVER_CACHE_KEY); } catch (e) {}
+    renderDiscoverTab();
+  });
+  body.appendChild(refresh);
+}
+
+async function runDiscover(btn) {
+  const apiKey = qaGetKey();
+  if (!apiKey) {
+    // Inline key prompt directly in the discover tab
+    const body = document.getElementById("tab-discover");
+    if (body) buildKeyForm(body, () => renderDiscoverTab());
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "thinking…";
+
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  const recentSorted = nodes
+    .filter(n => (n.date || "") >= ninetyDaysAgo)
+    .sort((a, b) => b.messages - a.messages)
+    .slice(0, 30);
+
+  const ctx = {
+    total_chats: nodes.length,
+    recent_chats: recentSorted.map(n => ({
+      id: n.id,
+      title: n.title,
+      date: n.date,
+      source: n.source,
+      cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
+      messages: n.messages,
+      topics: (n.topics || []).slice(0, 5),
+      summary: (n.summary || "").slice(0, 400),
+    })),
+    repeat_patterns: (insights.repeat_clusters || []).slice(0, 8).map(g => ({
+      theme: g.theme,
+      size: g.size,
+      chat_ids: g.members.map(m => m.id),
+    })),
+    bridges: nodes.filter(n => n.is_bridge).map(n => ({
+      id: n.id, title: n.title, cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
+    })),
+    forgotten_gold: (insights.forgotten_gold || []).slice(0, 8).map(g => ({
+      id: g.id, title: g.title, days_ago: g.days_ago, messages: g.messages,
+    })),
+  };
+
+  const prompt =
+    "You are looking at the metadata of someone's personal Claude conversation archive. Surface 4-6 specific things worth their attention. Focus on:\n" +
+    "1. Threads they started but seem to have abandoned — substantial sessions without recent follow-up.\n" +
+    "2. Topics where they're asking variations of the same question — unfinished thinking, places to commit to an answer.\n" +
+    "3. Unexpected connections between different topic clusters — cross-disciplinary opportunities.\n" +
+    "4. Ideas mentioned but not followed up on — TODOs hiding inside chats.\n" +
+    "5. Natural next questions that would build on existing work.\n\n" +
+    "Be concrete and reference specific chats. Avoid generic advice. If you can't find anything for a category, skip it — quality over quantity.\n\n" +
+    "Each observation must include:\n" +
+    "- title: 5-10 words, sentence case, specific. Not \"Continue working on X\" — say what.\n" +
+    "- why: 1-2 sentences explaining what to do or why this matters.\n" +
+    "- chat_ids: array of 1-3 specific chat IDs (must exist in the data below).\n\n" +
+    "Respond with ONLY a JSON array, no markdown, no preamble:\n" +
+    '[{"title": "...", "why": "...", "chat_ids": ["..."]}, ...]\n\n' +
+    "=== ARCHIVE METADATA ===\n" +
+    JSON.stringify(ctx, null, 2);
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: DISCOVER_MODEL,
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      btn.disabled = false;
+      btn.textContent = "generate discoveries";
+      const err = (data && data.error && data.error.message) || resp.statusText;
+      alert("API error: " + err);
+      return;
+    }
+    const text = (data.content && data.content[0] && data.content[0].text) || "[]";
+    let discoveries = [];
+    try {
+      const match = text.match(/\[[\s\S]*\]/);
+      discoveries = JSON.parse(match ? match[0] : text);
+    } catch (e) {
+      alert("Failed to parse response. Try regenerating.");
+      btn.disabled = false;
+      btn.textContent = "generate discoveries";
+      return;
+    }
+    discoveries = discoveries.filter(d => Array.isArray(d.chat_ids) && d.chat_ids.some(id => nodeById[id]));
+
+    try {
+      localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({
+        timestamp: Date.now(), discoveries,
+      }));
+    } catch (e) {}
+    renderDiscoverTab();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "generate discoveries";
+    alert("Network error: " + e.message);
+  }
+}
+
+renderAllInsightsTabs();
+
+// ---- Q&A: top-K retrieval over chat TF-IDF + Anthropic API call ----------
+const QA_MODEL = "claude-haiku-4-5-20251001";
+const QA_MAX_TOKENS = 1024;
+const QA_TOP_K = 5;
+
+function qaTokenize(s) {
+  return (s.toLowerCase().match(/\b[a-z][a-z0-9_-]{2,}\b/g) || []);
+}
+
+function qaRetrieve(query, k) {
+  const qTerms = new Set(qaTokenize(query));
+  if (qTerms.size === 0) return [];
+  const scored = nodes.map(n => {
+    let score = 0;
+    let hits = 0;
+    qTerms.forEach(t => {
+      const w = n.qa_vec && n.qa_vec[t];
+      if (w) { score += w; hits++; }
+    });
+    return { node: n, score, hits };
+  });
+  return scored.filter(x => x.score > 0)
+               .sort((a, b) => b.score - a.score)
+               .slice(0, k);
+}
+
+function qaGetKey() {
+  try { return localStorage.getItem("claude_constellation_api_key") || ""; }
+  catch (e) { return ""; }
+}
+function qaSetKey(k) {
+  try {
+    if (k) localStorage.setItem("claude_constellation_api_key", k);
+    else   localStorage.removeItem("claude_constellation_api_key");
+  } catch (e) {}
+}
+
+function renderQATab() {
+  const root = document.getElementById("qa-content");
+  root.innerHTML = "";
+  const intro = document.createElement("div");
+  intro.className = "empty";
+  intro.style.padding = "0 0 10px";
+  intro.textContent = "ask a question and i'll search your chat history, then summarize what you've already figured out.";
+  root.appendChild(intro);
+
+  const ta = document.createElement("textarea");
+  ta.id = "qa-input";
+  ta.placeholder = "what have I figured out about render performance?";
+  ta.rows = 3;
+  root.appendChild(ta);
+
+  const actions = document.createElement("div"); actions.className = "qa-actions";
+  const submit = document.createElement("button"); submit.className = "qa-submit"; submit.id = "qa-submit"; submit.textContent = "ask";
+  actions.appendChild(submit);
+  const editKey = document.createElement("button"); editKey.className = "qa-key-edit"; editKey.id = "qa-edit-key";
+  editKey.textContent = qaGetKey() ? "change API key" : "set API key";
+  actions.appendChild(editKey);
+  root.appendChild(actions);
+
+  const keyForm = document.createElement("div");
+  keyForm.id = "qa-key-form"; keyForm.className = "qa-keyform"; keyForm.style.display = "none";
+  keyForm.innerHTML = `
+    <p>Paste your Anthropic API key. Stored in your browser only — never sent anywhere except api.anthropic.com.</p>
+    <input type="password" id="qa-key-input" placeholder="sk-ant-..." />
+    <div class="actions">
+      <button class="primary" id="qa-key-save">save</button>
+      <button id="qa-key-clear">clear stored key</button>
+    </div>
+    <div class="qa-status" style="margin-top:8px">Get a key at console.anthropic.com</div>
+  `;
+  root.appendChild(keyForm);
+
+  const status = document.createElement("div"); status.id = "qa-status"; status.className = "qa-status";
+  root.appendChild(status);
+
+  const answer = document.createElement("div"); answer.id = "qa-answer"; answer.className = "qa-answer";
+  root.appendChild(answer);
+
+  const sources = document.createElement("div"); sources.id = "qa-sources"; sources.className = "qa-sources";
+  root.appendChild(sources);
+
+  const disclaimer = document.createElement("div"); disclaimer.className = "qa-disclaimer";
+  disclaimer.textContent = "Note: answering sends snippets of the top 5 retrieved chats (titles + opening + summary) to api.anthropic.com using your API key. Web chats already live there; Code/Cowork chats are local and stay local except for these snippets.";
+  root.appendChild(disclaimer);
+
+  // Wire up
+  document.getElementById("qa-edit-key").addEventListener("click", () => {
+    keyForm.style.display = keyForm.style.display === "none" ? "block" : "none";
+    if (keyForm.style.display === "block") {
+      document.getElementById("qa-key-input").value = qaGetKey();
+    }
+  });
+  document.getElementById("qa-key-save").addEventListener("click", () => {
+    const v = document.getElementById("qa-key-input").value.trim();
+    qaSetKey(v);
+    keyForm.style.display = "none";
+    document.getElementById("qa-edit-key").textContent = v ? "change API key" : "set API key";
+    setQAStatus(v ? "API key saved." : "API key cleared.");
+  });
+  document.getElementById("qa-key-clear").addEventListener("click", () => {
+    qaSetKey("");
+    document.getElementById("qa-key-input").value = "";
+    document.getElementById("qa-edit-key").textContent = "set API key";
+    setQAStatus("API key cleared.");
+  });
+
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit.click(); }
+  });
+  submit.addEventListener("click", askQA);
+}
+
+function setQAStatus(msg, isError) {
+  const s = document.getElementById("qa-status");
+  s.textContent = msg || "";
+  s.classList.toggle("error", !!isError);
+}
+
+async function askQA() {
+  const q = document.getElementById("qa-input").value.trim();
+  if (!q) return;
+  const apiKey = qaGetKey();
+  if (!apiKey) {
+    setQAStatus("Set your Anthropic API key first.", true);
+    document.getElementById("qa-key-form").style.display = "block";
+    return;
+  }
+  document.getElementById("qa-answer").textContent = "";
+  document.getElementById("qa-sources").innerHTML = "";
+
+  const top = qaRetrieve(q, QA_TOP_K);
+  if (top.length === 0) {
+    setQAStatus("No relevant chats found in your archive. Try different keywords.", true);
+    return;
+  }
+
+  // Show retrieved chats as sources up top
+  const sources = document.getElementById("qa-sources");
+  sources.innerHTML = "";
+  const lbl = document.createElement("div"); lbl.className = "lbl"; lbl.textContent = "drawn from these chats";
+  sources.appendChild(lbl);
+  top.forEach(x => {
+    const r = rowFor(x.node.id, "score " + x.score.toFixed(2));
+    if (r) sources.appendChild(r);
+  });
+
+  // Build prompt
+  const context = top.map((x, i) => {
+    const n = x.node;
+    return `## Chat ${i + 1}: ${n.title}\n` +
+           `Source: ${n.source} · Date: ${n.date}\n` +
+           `Opener: ${(n.preview || "").slice(0, 240)}\n` +
+           `Summary: ${(n.summary || "").slice(0, 600)}`;
+  }).join("\n\n");
+  const prompt =
+    "Below are excerpts from the user's past Claude conversations, retrieved by keyword overlap with their question. " +
+    "Use them to answer the question concisely. Cite specific chats by number when you reference them. " +
+    "If the excerpts don't actually answer the question, say so clearly rather than guessing.\n\n" +
+    "=== Past chats ===\n" + context +
+    "\n\n=== Question ===\n" + q;
+
+  const submit = document.getElementById("qa-submit");
+  submit.disabled = true; submit.textContent = "thinking…";
+  setQAStatus("Asking Claude…");
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: QA_MODEL,
+        max_tokens: QA_MAX_TOKENS,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      const msg = (data && data.error && data.error.message) || resp.statusText;
+      setQAStatus("API error: " + msg, true);
+      return;
+    }
+    const text = (data.content && data.content[0] && data.content[0].text) || "(empty response)";
+    document.getElementById("qa-answer").textContent = text;
+    setQAStatus("Done.");
+  } catch (e) {
+    setQAStatus("Network error: " + e.message, true);
+  } finally {
+    submit.disabled = false; submit.textContent = "ask";
+  }
+}
+
+document.querySelectorAll("#insights .tab").forEach(t => {
+  t.addEventListener("click", function() {
+    document.querySelectorAll("#insights .tab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll("#insights .tab-body").forEach(x => x.classList.remove("active"));
+    this.classList.add("active");
+    document.getElementById("tab-" + this.dataset.tab).classList.add("active");
+  });
+});
+
+const insightsEl = document.getElementById("insights");
+const insightsToggle = document.getElementById("insights-toggle");
+// Show a count of "actionable" insights (stuck-pattern groups + forgotten gold + bridges)
+(function setInsightsCount() {
+  const stuck = (insights.repeat_clusters || []).length;
+  const gold = (insights.forgotten_gold || []).length;
+  const bridges = nodes.filter(n => n.is_bridge).length;
+  document.getElementById("insights-count").textContent = stuck + gold + bridges;
+})();
+function toggleInsights(force) {
+  const willOpen = force !== undefined ? force : !insightsEl.classList.contains("open");
+  insightsEl.classList.toggle("open", willOpen);
+  insightsToggle.classList.toggle("open", willOpen);
+}
+insightsToggle.addEventListener("click", function() { toggleInsights(); });
+document.getElementById("insights-close").addEventListener("click", function() { toggleInsights(false); });
+
+// ---- cluster solo + fly-to-cluster (click a legend item to focus + zoom) ----
+let soloCluster = null;
+function flyToCluster(cid) {
+  const center = clusterCenters[cid];
+  if (!center) return;
+  // Determine a good camera distance based on the spread of cluster members
+  const members = nodes.filter(n => n.cluster === cid);
+  let maxR = 80;
+  members.forEach(n => {
+    const dx = n.x - center.x, dy = n.y - center.y, dz = n.z - center.z;
+    const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if (d > maxR) maxR = d;
+  });
+  const camDist = Math.max(220, maxR * 2.6);
+  // Camera placed along the vector from origin through the cluster centroid,
+  // pulled back by camDist so we look "down" at the cluster face.
+  const dir = center.clone().normalize();
+  const cx = center.x + dir.x * camDist;
+  const cy = center.y + dir.y * camDist;
+  const cz = center.z + dir.z * camDist;
+  flyTo(cx, cy, cz, center.x, center.y, center.z, 900);
+}
+function flyToOverview() {
+  flyTo(0, 0, 900, 0, 0, 0, 900);
+}
+document.querySelectorAll("#legend .item").forEach(el => {
+  el.addEventListener("click", function() {
+    const cid = this.dataset.cluster;
+    if (soloCluster === cid) {
+      soloCluster = null;
+      document.querySelectorAll("#legend .item").forEach(it => it.classList.remove("solo", "muted"));
+      flyToOverview();
+      setInsightsContext(null);
+    } else {
+      soloCluster = cid;
+      document.querySelectorAll("#legend .item").forEach(it => {
+        if (it.dataset.cluster === cid) { it.classList.add("solo"); it.classList.remove("muted"); }
+        else { it.classList.add("muted"); it.classList.remove("solo"); }
+      });
+      flyToCluster(cid);
+      setInsightsContext({ nodeId: null, clusterId: cid });
+    }
+  });
+});
+
+// ---- focus-on-zoom: as you zoom in, off-axis clusters shrink and fade -------
+// We compute each cluster's distance to the camera position. The closest cluster
+// is the "focused" one. The further a cluster sits from the camera, the more its
+// nodes shrink and dim — so zooming in on one cluster declutters everything else.
+const FOCUS_NEAR = 250;   // distance at which a cluster is fully focused
+const FOCUS_FAR  = 1500;  // distance past which a cluster is fully faded
+const FAR_SCALE_MIN  = 0.35;
+const FAR_OPACITY_MIN = 0.18;
+const clusterFocus = {};
+
+function updateFocus() {
+  // Camera sees more of the scene when pulled back. We blend the focus effect with
+  // an "ambient" level so distant clusters don't disappear when fully zoomed out.
+  const ambient = Math.min(1, (radius - FOCUS_NEAR) / (FOCUS_FAR - FOCUS_NEAR));  // 0 close, 1 far
+  Object.keys(clusterCenters).forEach(c => {
+    const d = clusterCenters[c].distanceTo(camera.position);
+    const raw = Math.max(0, Math.min(1, 1 - (d - FOCUS_NEAR) / (FOCUS_FAR - FOCUS_NEAR)));
+    // When zoomed out, nudge focus toward 1 across the board
+    clusterFocus[c] = raw * (1 - ambient) + ambient;
+  });
+}
+
+function applyFocus() {
+  // Build a set of node IDs whose edges should be emphasized (hover or selection)
+  const emphasizedId = (selected && selected.userData.node.id) || (hovered && hovered.userData.node.id);
+  const emphasizedConnIds = new Set();
+  if (emphasizedId) {
+    links.forEach(l => {
+      const sId = (l.source && l.source.id) || l.source;
+      const tId = (l.target && l.target.id) || l.target;
+      if (sId === emphasizedId) emphasizedConnIds.add(tId);
+      if (tId === emphasizedId) emphasizedConnIds.add(sId);
+    });
+  }
+
+  nodeMeshes.forEach(g => {
+    const n = g.userData.node;
+    const f = clusterFocus[n.cluster] !== undefined ? clusterFocus[n.cluster] : 1;
+    const baseScale = FAR_SCALE_MIN + (1 - FAR_SCALE_MIN) * f;
+    const hoverScale = g.userData.hoverScale || 1;
+    const selectedScale = (g === selected) ? 1.9 : 1;
+    g.scale.setScalar(baseScale * hoverScale * selectedScale);
+
+    const aHalo = g.userData.baseHaloOpacity * (FAR_OPACITY_MIN + (1 - FAR_OPACITY_MIN) * f);
+    const aMid  = g.userData.baseMidOpacity * (FAR_OPACITY_MIN + (1 - FAR_OPACITY_MIN) * f);
+    const aCore = (FAR_OPACITY_MIN + (1 - FAR_OPACITY_MIN) * f);
+
+    // Cluster-solo dim
+    let clusterDim = 1;
+    if (soloCluster && n.cluster !== soloCluster) clusterDim = 0.18;
+
+    if (g === selected) {
+      // Selected nodes are the most visually dominant — boost all three layers
+      // so they're unmistakable in both dark and light themes.
+      g.userData.haloMat.opacity = Math.min(0.7, g.userData.baseHaloOpacity * 4) * clusterDim;
+      g.userData.midMat.opacity = Math.min(0.95, g.userData.baseMidOpacity * 2.5) * clusterDim;
+      g.userData.coreMat.opacity = clusterDim;
+    } else if (g === hovered) {
+      g.userData.haloMat.opacity = Math.min(0.55, aHalo * 2.5) * clusterDim;
+      g.userData.midMat.opacity = Math.min(0.85, aMid * 1.8) * clusterDim;
+      g.userData.coreMat.opacity = clusterDim;
+    } else {
+      g.userData.haloMat.opacity = aHalo * clusterDim;
+      g.userData.midMat.opacity = aMid * clusterDim;
+      g.userData.coreMat.opacity = aCore * clusterDim;
+    }
+    // Bridge halo (only present on bridge nodes) follows the same fade-with-distance
+    if (g.userData.bridgeHaloMat) {
+      const bridgeBoost = (g === selected) ? 2.5 : 1;
+      g.userData.bridgeHaloMat.opacity = Math.min(0.8, g.userData.bridgeHaloBaseOpacity * bridgeBoost * (FAR_OPACITY_MIN + (1 - FAR_OPACITY_MIN) * f)) * clusterDim;
+    }
+  });
+
+  edgeObjs.forEach(line => {
+    const l = line.userData.link;
+    const sId = (l.source && l.source.id) || l.source;
+    const tId = (l.target && l.target.id) || l.target;
+    const sN = nodeById[sId], tN = nodeById[tId];
+    if (!sN || !tN) return;
+    const fs = clusterFocus[sN.cluster] !== undefined ? clusterFocus[sN.cluster] : 1;
+    const ft = clusterFocus[tN.cluster] !== undefined ? clusterFocus[tN.cluster] : 1;
+    const f = Math.min(fs, ft);
+
+    // When something is hovered/selected, light up its edges and dim everything else heavily.
+    let factor;
+    if (emphasizedId) {
+      const isConnected = (sId === emphasizedId) || (tId === emphasizedId);
+      factor = isConnected ? 1 : 0.04;
+    } else {
+      factor = 0.18 + 0.82 * f;  // baseline: keep edges quiet by default
+    }
+
+    // Cluster-solo dimming
+    if (soloCluster && (sN.cluster !== soloCluster || tN.cluster !== soloCluster)) {
+      // Edges entirely inside solo cluster stay; bridges out of it dim further
+      if (sN.cluster !== soloCluster && tN.cluster !== soloCluster) factor *= 0.05;
+      else factor *= 0.25;
+    }
+
+    line.material.opacity = line.userData.baseOpacity * factor;
+  });
+}
+
+// ---- animation loop ----------------------------------------------------
+function tick() {
+  requestAnimationFrame(tick);
+  if (autoRotate) {
+    theta += 0.0015;
+    updateCamera();
+  }
+  updateFocus();
+  applyFocus();
+  // Make bridge rings face the camera
+  nodeMeshes.forEach(g => {
+    if (g.userData.ring) {
+      g.userData.ring.lookAt(camera.position);
+    }
+  });
+  renderer.render(scene, camera);
+}
+tick();
+
+// ── Theme toggle (dark / monochrome light) ──────────────────────────────────
+// Light mode is intentionally monochrome — all nodes become a dark slate color,
+// edges become light grey, no additive glow. Cluster identification comes from
+// spatial position. Single accent color (deep blue) marks selection / bridges.
+const MONO_NODE_HEX = 0x2a3142;
+const MONO_NODE_LIGHT_HEX = 0x4a5470;
+const MONO_EDGE_HEX = 0x9aa3b5;
+const MONO_BRIDGE_HEX = 0x2a4a86;
+const MONO_FOG_HEX = 0xe8e4d8;
+const DARK_FOG_HEX = 0x050813;
+
+let currentTheme = "dark";
+function setTheme(name) {
+  currentTheme = name;
+  document.body.classList.toggle("light", name === "light");
+
+  // Update three.js scene
+  scene.fog.color.setHex(name === "light" ? MONO_FOG_HEX : DARK_FOG_HEX);
+  // Renderer needs a clear color for light mode (transparent canvas keeps showing dark CSS gradient otherwise)
+  if (name === "light") {
+    renderer.setClearColor(0xf3eee0, 1.0);
+  } else {
+    renderer.setClearColor(0x000000, 0);
+  }
+
+  const blend = name === "light" ? THREE.NormalBlending : THREE.AdditiveBlending;
+  const baseHaloOpacity = name === "light" ? 0.08 : 0.16;
+  const baseMidOpacity  = name === "light" ? 0.18 : 0.32;
+
+  nodeMeshes.forEach(g => {
+    const n = g.userData.node;
+    const cluster = clusterMap[n.cluster];
+    const colMain = name === "light" ? new THREE.Color(MONO_NODE_HEX) : new THREE.Color(cluster.color);
+    const colLight = name === "light" ? new THREE.Color(MONO_NODE_LIGHT_HEX) : new THREE.Color(cluster.light);
+
+    g.userData.haloMat.color.copy(colMain);
+    g.userData.midMat.color.copy(colMain);
+    // Only repaint the core if this node isn't currently selected — selection has its own highlight color
+    if (g !== selected) {
+      g.userData.coreMat.color.copy(colLight);
+    }
+    // Update the stored baseline so deselect restores to the right color
+    g.userData.baseCoreColor = colLight.clone();
+
+    g.userData.haloMat.blending = blend;
+    g.userData.midMat.blending = blend;
+    g.userData.coreMat.blending = blend;
+    g.userData.haloMat.needsUpdate = true;
+    g.userData.midMat.needsUpdate = true;
+    g.userData.coreMat.needsUpdate = true;
+
+    // Light-mode opacities are lower because Normal blending darkens stacked layers
+    g.userData.baseHaloOpacity = baseHaloOpacity;
+    g.userData.baseMidOpacity = baseMidOpacity;
+
+    if (g.userData.bridgeHaloMat) {
+      g.userData.bridgeHaloMat.color.setHex(name === "light" ? MONO_BRIDGE_HEX : new THREE.Color(cluster.color).getHex());
+      g.userData.bridgeHaloMat.blending = blend;
+      g.userData.bridgeHaloMat.needsUpdate = true;
+      g.userData.bridgeHaloBaseOpacity = name === "light" ? 0.18 : 0.22;
+    }
+  });
+
+  edgeObjs.forEach(line => {
+    const l = line.userData.link;
+    if (l.type === "bridge") {
+      line.material.color.setHex(name === "light" ? MONO_BRIDGE_HEX : 0xaef0fa);
+    } else if (l.type === "temporal") {
+      line.material.color.setHex(name === "light" ? MONO_EDGE_HEX : 0x7e89c0);
+    } else {
+      const sId = (l.source && l.source.id) || l.source;
+      const sN = nodeById[sId];
+      if (name === "light") {
+        line.material.color.setHex(MONO_EDGE_HEX);
+      } else if (sN) {
+        line.material.color.setHex(new THREE.Color(clusterMap[sN.cluster].color).getHex());
+      }
+    }
+    line.material.blending = blend;
+    line.material.needsUpdate = true;
+  });
+
+  // Starfield: hide in light mode (white-on-white doesn't make sense)
+  stars.visible = name !== "light";
+
+  // Update button label
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.textContent = "theme: " + name;
+
+  try { localStorage.setItem("constellation_theme", name); } catch (e) {}
+}
+
+// Stash the stars group reference so setTheme can toggle it
+// (defined above near scene setup as `stars` Points object — already global in this script)
+
+document.getElementById("theme-toggle").addEventListener("click", function() {
+  setTheme(currentTheme === "dark" ? "light" : "dark");
+});
+
+// Restore previous theme choice
+try {
+  const saved = localStorage.getItem("constellation_theme");
+  if (saved === "light") setTheme("light");
+} catch (e) {}
+
+// ── Guided tour ────────────────────────────────────────────────────────────
+const TOUR_STEPS = [
+  {
+    selector: null, position: "center",
+    title: "your conversation constellation",
+    body: "every glowing star is a chat you've had with Claude — across Code, Cowork, and claude.ai web. Drag to rotate the sphere, scroll to zoom, click any star to read it."
+  },
+  {
+    selector: "#chats-toggle", position: "below",
+    title: "chats / Code / Cowork / Web",
+    body: "these pills filter by source. \"chats\" is a master switch; the others toggle a specific source. Active = bright, inactive = dim. Click them off and on to feel the filter."
+  },
+  {
+    selector: "#search", position: "below-left",
+    title: "search",
+    body: "type any keyword — title, topic, source, or text from a chat. Non-matching stars dim instantly so you can find a chat by memory."
+  },
+  {
+    selector: "#legend", position: "above",
+    title: "click a cluster to focus it",
+    body: "every name down here is a topic cluster. click one — that cluster's stars pop while the others fade. click again to unfocus. great for diving into one topic at a time."
+  },
+  {
+    selector: "#insights-toggle", position: "above",
+    title: "insights — the actually useful part",
+    body: "click here to open three lists: stuck patterns (questions you've asked over and over), forgotten gold (long sessions worth re-reading), and cluster digests. clicking any row flies the camera to that star."
+  },
+  {
+    selector: "#toggle-bridges", position: "above",
+    title: "bridges",
+    body: "dashed cyan lines connecting different clusters are \"bridges\" — chats that span topics. they're often the most cross-disciplinary insights you've had. toggle here to hide/show them."
+  },
+  {
+    selector: null, position: "center",
+    title: "click a star → side panel",
+    body: "clicking any star opens a panel with its summary, topics, connections, and a \"continue in Claude desktop\" button — that opens the exact conversation in the desktop app. one click and you're back in it."
+  },
+  {
+    selector: "#tour-button", position: "above",
+    title: "you're set",
+    body: "this \"?\" button brings the tour back any time. now go explore — try clicking insights, then \"forgotten gold\". something interesting will be there."
+  }
+];
+
+let tourIdx = 0;
+const tourMask = document.getElementById("tour-mask");
+const tourHole = document.getElementById("tour-hole-rect");
+const tourHi = document.getElementById("tour-highlight-rect");
+const tourTip = document.getElementById("tour-tooltip");
+
+function startTour() {
+  tourIdx = 0;
+  showTourStep();
+}
+
+function endTour() {
+  tourMask.classList.remove("show", "interactive");
+  tourTip.classList.remove("show");
+  try { localStorage.setItem("constellation_tour_complete", "1"); } catch (e) {}
+}
+
+function showTourStep() {
+  const step = TOUR_STEPS[tourIdx];
+  if (!step) { endTour(); return; }
+  tourMask.classList.add("show", "interactive");
+  tourTip.classList.add("show");
+
+  const W = window.innerWidth, H = window.innerHeight;
+  let bx, by, bw, bh;
+  if (step.selector) {
+    const el = document.querySelector(step.selector);
+    if (!el) {
+      bx = W/2 - 40; by = H/2 - 40; bw = 80; bh = 80;
+    } else {
+      const r = el.getBoundingClientRect();
+      const pad = 8;
+      bx = r.left - pad; by = r.top - pad; bw = r.width + 2*pad; bh = r.height + 2*pad;
+    }
+  } else {
+    // Center spotlight on canvas
+    bx = W*0.30; by = H*0.30; bw = W*0.40; bh = H*0.40;
+  }
+
+  tourHole.setAttribute("x", bx);
+  tourHole.setAttribute("y", by);
+  tourHole.setAttribute("width", bw);
+  tourHole.setAttribute("height", bh);
+  tourHi.setAttribute("x", bx);
+  tourHi.setAttribute("y", by);
+  tourHi.setAttribute("width", bw);
+  tourHi.setAttribute("height", bh);
+
+  document.getElementById("tour-title").textContent = step.title;
+  document.getElementById("tour-body").textContent = step.body;
+  document.getElementById("tour-meta").textContent = "step " + (tourIdx+1) + " of " + TOUR_STEPS.length;
+  document.getElementById("tour-prev").style.visibility = tourIdx === 0 ? "hidden" : "visible";
+  document.getElementById("tour-next").textContent = tourIdx === TOUR_STEPS.length - 1 ? "done" : "next";
+
+  const tipW = 320, tipH = 180;
+  let tx, ty;
+  switch (step.position) {
+    case "below":      tx = bx + bw/2 - tipW/2; ty = by + bh + 14; break;
+    case "below-left": tx = Math.max(20, bx + bw - tipW); ty = by + bh + 14; break;
+    case "above":      tx = bx + bw/2 - tipW/2; ty = by - tipH - 14; break;
+    case "above-left": tx = Math.max(20, bx + bw - tipW); ty = by - tipH - 14; break;
+    case "right":      tx = bx + bw + 14; ty = by + bh/2 - tipH/2; break;
+    case "left":       tx = bx - tipW - 14; ty = by + bh/2 - tipH/2; break;
+    default:           tx = W/2 - tipW/2; ty = H/2 - tipH/2; break;
+  }
+  tx = Math.max(20, Math.min(W - tipW - 20, tx));
+  ty = Math.max(20, Math.min(H - tipH - 20, ty));
+  tourTip.style.left = tx + "px";
+  tourTip.style.top = ty + "px";
+}
+
+document.getElementById("tour-next").addEventListener("click", function(){
+  if (tourIdx >= TOUR_STEPS.length - 1) { endTour(); return; }
+  tourIdx++; showTourStep();
+});
+document.getElementById("tour-prev").addEventListener("click", function(){
+  if (tourIdx > 0) { tourIdx--; showTourStep(); }
+});
+document.getElementById("tour-skip").addEventListener("click", endTour);
+document.getElementById("tour-button").addEventListener("click", startTour);
+
+window.addEventListener("resize", function(){
+  if (tourMask.classList.contains("show")) showTourStep();
+});
+
+// Auto-start tour on first visit
+try {
+  if (!localStorage.getItem("constellation_tour_complete")) {
+    setTimeout(startTour, 800);
+  }
+} catch (e) {
+  // localStorage blocked — just skip auto-start
+}
+</script>
+</body>
+</html>
