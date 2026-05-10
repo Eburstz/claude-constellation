@@ -37,7 +37,7 @@ Everything runs locally. The only data that ever leaves your machine is what you
 Requires Python 3.10+. The base build needs zero pip dependencies.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-constellation.git
+git clone https://github.com/Eburstz/claude-constellation.git
 cd claude-constellation
 python3 claude_constellation.py
 open conversation-constellation.html
