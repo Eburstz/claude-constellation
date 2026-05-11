@@ -597,7 +597,7 @@ window.addEventListener("error", function(e) {
   b.textContent = "JS ERROR\n" + e.message + "\n  at " + (e.filename||"?") + ":" + (e.lineno||"?") + ":" + (e.colno||"?") + "\n" + (e.error && e.error.stack || "");
 });
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha512-dLxUelApnYxpLt6K2iomGngnHO83iUvZytA3YjDUCjT0HDOHKXnVYdf3hU4JjM8uEhxf9nD1/ey98U3t2vZ0qQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 "use strict";
 
@@ -979,16 +979,34 @@ function setHover(g, cx, cy) {
     const n = g.userData.node;
     const cl = clusterMap[n.cluster];
     const cc = connCount[n.id] || 0;
-    tip.innerHTML =
-      '<div class="src">' + n.source + ' · ' + n.date + (n.is_bridge ? ' · bridge' : '') + '</div>' +
-      n.title +
-      '<div style="font-size:10px;color:#8aa1bd;margin-top:4px;display:flex;gap:8px">' +
-        (cl ? '<span>' + cl.name + '</span>' : '') +
-        '<span>·</span>' +
-        '<span>' + cc + ' connection' + (cc === 1 ? '' : 's') + '</span>' +
-        '<span>·</span>' +
-        '<span>' + n.messages + ' messages</span>' +
-      '</div>';
+    // Build via DOM so user-controlled fields (title, cluster name) can't inject HTML.
+    tip.textContent = "";
+    const src = document.createElement("div");
+    src.className = "src";
+    src.textContent = n.source + " · " + n.date + (n.is_bridge ? " · bridge" : "");
+    tip.appendChild(src);
+    const titleNode = document.createTextNode(n.title || "");
+    tip.appendChild(titleNode);
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size:10px;color:#8aa1bd;margin-top:4px;display:flex;gap:8px";
+    if (cl) {
+      const s = document.createElement("span");
+      s.textContent = cl.name || "";
+      meta.appendChild(s);
+      const sep = document.createElement("span");
+      sep.textContent = "·";
+      meta.appendChild(sep);
+    }
+    const conn = document.createElement("span");
+    conn.textContent = cc + " connection" + (cc === 1 ? "" : "s");
+    meta.appendChild(conn);
+    const sep2 = document.createElement("span");
+    sep2.textContent = "·";
+    meta.appendChild(sep2);
+    const msgs = document.createElement("span");
+    msgs.textContent = n.messages + " messages";
+    meta.appendChild(msgs);
+    tip.appendChild(meta);
     tip.style.opacity = 1;
     tip.style.left = (cx + 14) + "px";
     tip.style.top = (cy + 14) + "px";
@@ -1534,7 +1552,7 @@ function renderDiscoveryEmpty(body) {
   const intro = document.createElement("div");
   intro.className = "empty";
   intro.style.padding = "0 0 6px";
-  intro.textContent = "Surface things you've missed: abandoned threads, unfinished thinking, unexpected connections, natural next questions. Powered by Claude.";
+  intro.textContent = "Surface things you've missed: abandoned threads, unfinished thinking, unexpected connections, natural next questions.";
   body.appendChild(intro);
 
   const btn = document.createElement("button");
@@ -1551,9 +1569,12 @@ function renderDiscoveryEmpty(body) {
 
   const meta = document.createElement("div");
   meta.className = "gen-meta";
-  meta.textContent = qaGetKey()
-    ? "~1 Haiku call (≈$0.01–0.02). Cached for 24h."
-    : "Requires an Anthropic API key — you'll be prompted when you click above.";
+  const k = qaGetKey();
+  meta.textContent = !k
+    ? "Requires an Anthropic or OpenRouter API key — you'll be prompted when you click above."
+    : qaProvider() === "openrouter"
+    ? "Free via OpenRouter (Llama). Cached for 24h."
+    : "~1 Haiku call (≈$0.01–0.02). Cached for 24h.";
   body.appendChild(meta);
 }
 
@@ -1645,55 +1666,73 @@ async function runDiscover(btn) {
   btn.textContent = "thinking…";
 
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  // Free models are slow with long contexts. Use a much leaner payload for OpenRouter.
+  const isFree = qaProvider() === "openrouter";
+  const chatLimit = isFree ? 8 : 30;
+  const summaryLen = isFree ? 100 : 400;
   const recentSorted = nodes
     .filter(n => (n.date || "") >= ninetyDaysAgo)
     .sort((a, b) => b.messages - a.messages)
-    .slice(0, 30);
+    .slice(0, chatLimit);
 
-  const ctx = {
-    total_chats: nodes.length,
-    recent_chats: recentSorted.map(n => ({
-      id: n.id,
-      title: n.title,
-      date: n.date,
-      source: n.source,
-      cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
-      messages: n.messages,
-      topics: (n.topics || []).slice(0, 5),
-      summary: (n.summary || "").slice(0, 400),
-    })),
-    repeat_patterns: (insights.repeat_clusters || []).slice(0, 8).map(g => ({
-      theme: g.theme,
-      size: g.size,
-      chat_ids: g.members.map(m => m.id),
-    })),
-    bridges: nodes.filter(n => n.is_bridge).map(n => ({
-      id: n.id, title: n.title, cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
-    })),
-    forgotten_gold: (insights.forgotten_gold || []).slice(0, 8).map(g => ({
-      id: g.id, title: g.title, days_ago: g.days_ago, messages: g.messages,
-    })),
-  };
+  let prompt;
+  if (isFree) {
+    // Minimal context, minimal output — small models can actually finish this.
+    const chatLines = recentSorted.map(n => `${n.id} | ${n.title} | ${n.messages}msgs | ${(n.summary||'').slice(0,summaryLen)}`).join("\n");
+    const repeats = (insights.repeat_clusters || []).slice(0, 3).map(g => `${g.theme} (${g.members.length} chats)`).join("; ");
+    const forgotten = (insights.forgotten_gold || []).slice(0, 3).map(g => `${g.id}: ${g.title} (${g.days_ago}d ago)`).join("\n");
+    prompt = `Pick 3 things worth this person's attention from their Claude chat history. Mix: abandoned threads, repeat questions, surprising connections, next steps.
 
-  const prompt =
-    "You are looking at the metadata of someone's personal Claude conversation archive. Surface 4-6 specific things worth their attention. Focus on:\n" +
-    "1. Threads they started but seem to have abandoned — substantial sessions without recent follow-up.\n" +
-    "2. Topics where they're asking variations of the same question — unfinished thinking, places to commit to an answer.\n" +
-    "3. Unexpected connections between different topic clusters — cross-disciplinary opportunities.\n" +
-    "4. Ideas mentioned but not followed up on — TODOs hiding inside chats.\n" +
-    "5. Natural next questions that would build on existing work.\n\n" +
-    "Be concrete and reference specific chats. Avoid generic advice. If you can't find anything for a category, skip it — quality over quantity.\n\n" +
-    "Each observation must include:\n" +
-    "- title: 5-10 words, sentence case, specific. Not \"Continue working on X\" — say what.\n" +
-    "- why: 1-2 sentences explaining what to do or why this matters.\n" +
-    "- chat_ids: array of 1-3 specific chat IDs (must exist in the data below).\n\n" +
-    "Respond with ONLY a JSON array, no markdown, no preamble:\n" +
-    '[{"title": "...", "why": "...", "chat_ids": ["..."]}, ...]\n\n' +
-    "=== ARCHIVE METADATA ===\n" +
-    JSON.stringify(ctx, null, 2);
+Recent chats (id | title | msgs | summary):
+${chatLines}
+
+Repeat patterns: ${repeats || "none"}
+
+Forgotten sessions (long ones not opened in 30+ days):
+${forgotten || "none"}
+
+Respond with ONLY a JSON array of 3 items, no other text:
+[{"title":"5-10 words","why":"1-2 sentences","chat_ids":["chat_id_here"]}]`;
+  } else {
+    const ctx = {
+      total_chats: nodes.length,
+      recent_chats: recentSorted.map(n => ({
+        id: n.id, title: n.title, date: n.date, source: n.source,
+        cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
+        messages: n.messages,
+        topics: (n.topics || []).slice(0, 5),
+        summary: (n.summary || "").slice(0, summaryLen),
+      })),
+      repeat_patterns: (insights.repeat_clusters || []).slice(0, 8).map(g => ({
+        theme: g.theme, size: g.size, chat_ids: g.members.map(m => m.id),
+      })),
+      bridges: nodes.filter(n => n.is_bridge).map(n => ({
+        id: n.id, title: n.title, cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
+      })),
+      forgotten_gold: (insights.forgotten_gold || []).slice(0, 8).map(g => ({
+        id: g.id, title: g.title, days_ago: g.days_ago, messages: g.messages,
+      })),
+    };
+    prompt =
+      "You are looking at the metadata of someone's personal Claude conversation archive. Surface 4-6 specific things worth their attention. Focus on:\n" +
+      "1. Threads they started but seem to have abandoned — substantial sessions without recent follow-up.\n" +
+      "2. Topics where they're asking variations of the same question — unfinished thinking, places to commit to an answer.\n" +
+      "3. Unexpected connections between different topic clusters — cross-disciplinary opportunities.\n" +
+      "4. Ideas mentioned but not followed up on — TODOs hiding inside chats.\n" +
+      "5. Natural next questions that would build on existing work.\n\n" +
+      "Be concrete and reference specific chats. Avoid generic advice. If you can't find anything for a category, skip it — quality over quantity.\n\n" +
+      "Each observation must include:\n" +
+      "- title: 5-10 words, sentence case, specific. Not \"Continue working on X\" — say what.\n" +
+      "- why: 1-2 sentences explaining what to do or why this matters.\n" +
+      "- chat_ids: array of 1-3 specific chat IDs (must exist in the data below).\n\n" +
+      "Respond with ONLY a JSON array, no markdown, no preamble:\n" +
+      '[{"title": "...", "why": "...", "chat_ids": ["..."]}, ...]\n\n' +
+      "=== ARCHIVE METADATA ===\n" +
+      JSON.stringify(ctx, null, 2);
+  }
 
   try {
-    const text = await llmComplete(prompt, 2000);
+    const text = await llmComplete(prompt, isFree ? 500 : 2000, (msg) => { btn.textContent = msg; });
     let discoveries = [];
     try {
       const match = text.match(/\[[\s\S]*\]/);
@@ -1767,50 +1806,127 @@ function qaProvider() {
   return "anthropic";  // default: Anthropic sk-ant- (and anything else)
 }
 
-// Single fetch wrapper that handles both providers' wire formats.
-async function llmComplete(prompt, maxTokens) {
-  const apiKey = qaGetKey();
-  if (!apiKey) throw new Error("no API key");
-  const provider = qaProvider();
+// OpenRouter free-model queues are slow on big models. Fast small models first,
+// then fall through to larger ones if a small model is overloaded.
+const OPENROUTER_FREE_MODELS = [
+  "meta-llama/llama-3.2-3b-instruct:free",   // 3B — fastest, decent quality
+  "openai/gpt-oss-20b:free",                  // 20B
+  "nvidia/nemotron-nano-9b-v2:free",          // 9B
+  "meta-llama/llama-3.3-70b-instruct:free",  // 70B — last resort
+];
 
-  let url, headers, body, extractText;
-  if (provider === "openrouter") {
-    url = "https://openrouter.ai/api/v1/chat/completions";
-    headers = {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + apiKey,
-      "HTTP-Referer": "https://github.com/Eburstz/claude-constellation",
-      "X-Title": "claude-constellation",
-    };
-    body = JSON.stringify({
-      model: "meta-llama/llama-3.1-8b-instruct:free",
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content: prompt }],
+function formatOpenRouterError(data, status) {
+  const err = (data && data.error) || {};
+  let msg = err.message || (typeof err === "string" ? err : "") || `HTTP ${status}`;
+  if (err.metadata) {
+    if (err.metadata.provider_name) msg += ` (upstream: ${err.metadata.provider_name})`;
+    if (err.metadata.raw) {
+      const raw = typeof err.metadata.raw === "string" ? err.metadata.raw : JSON.stringify(err.metadata.raw);
+      msg += ` — ${raw.slice(0, 200)}`;
+    }
+  }
+  return msg;
+}
+
+async function openrouterCall(apiKey, model, prompt, maxTokens, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs || 90000);
+  let resp, data;
+  try {
+    resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey,
+        "HTTP-Referer": "https://github.com/Eburstz/claude-constellation",
+        "X-Title": "claude-constellation",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
-    extractText = (d) => (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
-  } else {
-    url = "https://api.anthropic.com/v1/messages";
-    headers = {
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === "AbortError") throw new Error(`[OpenRouter:${model}] timed out after ${(timeoutMs||30000)/1000}s`);
+    throw e;
+  }
+  clearTimeout(timer);
+  try { data = await resp.json(); } catch (e) { data = null; }
+  if (!resp.ok) throw new Error(`[OpenRouter:${model}] ${formatOpenRouterError(data, resp.status)}`);
+  // OpenRouter sometimes returns 200 with an error body (provider failure).
+  if (data && data.error) throw new Error(`[OpenRouter:${model}] ${formatOpenRouterError(data, resp.status)}`);
+  return (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+}
+
+async function anthropicCall(apiKey, prompt, maxTokens) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
-    };
-    body = JSON.stringify({
+    },
+    body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
       max_tokens: maxTokens,
       messages: [{ role: "user", content: prompt }],
-    });
-    extractText = (d) => (d.content && d.content[0] && d.content[0].text) || "";
-  }
-
-  const resp = await fetch(url, { method: "POST", headers, body });
+    }),
+  });
   const data = await resp.json();
   if (!resp.ok) {
     const msg = (data && data.error && (data.error.message || data.error)) || resp.statusText;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    const hint = !apiKey.startsWith("sk-ant-")
+      ? " (Tip: this key was sent to Anthropic but doesn't start with sk-ant-. If you meant OpenRouter, the key must start with sk-or-.)"
+      : "";
+    throw new Error(`[Anthropic] ${typeof msg === "string" ? msg : JSON.stringify(msg)}${hint}`);
   }
-  return extractText(data);
+  return (data.content && data.content[0] && data.content[0].text) || "";
+}
+
+// Single fetch wrapper that handles both providers, with fallback for OpenRouter.
+// onProgress(msg) is called before each model attempt (useful for UI status).
+async function llmComplete(prompt, maxTokens, onProgress) {
+  const apiKey = qaGetKey();
+  if (!apiKey) throw new Error("no API key");
+  const provider = qaProvider();
+
+  if (provider === "openrouter") {
+    let lastErr = null;
+    for (let i = 0; i < OPENROUTER_FREE_MODELS.length; i++) {
+      const model = OPENROUTER_FREE_MODELS[i];
+      const short = model.split("/").pop().replace(":free", "");
+      // Live elapsed counter so the user can see we're alive during the (sometimes slow) free queue.
+      let elapsed = 0;
+      const tick = setInterval(() => {
+        elapsed += 1;
+        if (onProgress) onProgress(`trying ${short}${i ? " (fallback)" : ""}… ${elapsed}s`);
+      }, 1000);
+      if (onProgress) onProgress(`trying ${short}${i ? " (fallback)" : ""}… 0s`);
+      try {
+        const result = await openrouterCall(apiKey, model, prompt, maxTokens, 45000);
+        clearInterval(tick);
+        return result;
+      } catch (e) {
+        clearInterval(tick);
+        console.warn("OpenRouter model failed:", model, e.message);
+        lastErr = e;
+        const m = String(e.message || "").toLowerCase();
+        // 401 / invalid key → stop immediately, no point trying other models.
+        if (m.includes("401") || m.includes("invalid api") || m.includes("unauthor") || m.includes("no auth")) {
+          throw e;
+        }
+        // otherwise try the next model
+      }
+    }
+    throw lastErr || new Error("[OpenRouter] all fallback models failed");
+  }
+
+  if (onProgress) onProgress("calling Claude Haiku…");
+  return await anthropicCall(apiKey, prompt, maxTokens);
 }
 
 function renderQATab() {
@@ -1947,7 +2063,7 @@ async function askQA() {
   setQAStatus("Asking " + providerLabel + "…");
 
   try {
-    const text = await llmComplete(prompt, QA_MAX_TOKENS);
+    const text = await llmComplete(prompt, QA_MAX_TOKENS, (msg) => setQAStatus(msg));
     document.getElementById("qa-answer").textContent = text || "(empty response)";
     setQAStatus("Done.");
   } catch (e) {

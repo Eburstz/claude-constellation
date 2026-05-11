@@ -2,7 +2,7 @@
 
 An interactive 3D map of every conversation you've ever had with Claude — across Claude Code, Cowork, and claude.ai web chat.
 
-![preview light](examples/preview.png)
+![preview light](examples/preview-light.png)
 
 ![preview dark](examples/preview-dark.png)
 
@@ -208,7 +208,8 @@ claude-constellation/
 ├── uninstall-schedule.command
 ├── install-deps.command      # install fastembed for embeddings
 ├── examples/
-│   └── preview.svg
+│   ├── preview-light.png
+│   └── preview-dark.png
 ├── LICENSE
 └── README.md
 ```

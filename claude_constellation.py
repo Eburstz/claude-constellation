@@ -18,6 +18,7 @@ on your machine.
 """
 
 import argparse
+import html
 import json
 import math
 import os
@@ -1029,15 +1030,25 @@ def render_html(graph: dict, template_path: Path) -> str:
     stats_text = f'{stats["nodes"]} conversations · {stats["edges"]} connections · ' + \
                  " · ".join(f"{n} {s}" for s, n in sources.items())
     source_chips = "".join(
-        f'<button class="chip active" data-src="{s}">{s} <span class="count">{n}</span></button>'
+        f'<button class="chip active" data-src="{html.escape(str(s), quote=True)}">{html.escape(str(s))} <span class="count">{n}</span></button>'
         for s, n in sources.items()
     )
     used_clusters = {n["cluster"] for n in graph["nodes"]}
+    # cluster name comes from the LLM — must be HTML-escaped before inline interpolation.
+    # color comes from the hardcoded palette but escape defensively.
     legend_items = "".join(
-        f'<div class="item" data-cluster="{c["id"]}"><span class="dot" style="background:{c["color"]};color:{c["color"]}"></span>{c["name"]}</div>'
+        f'<div class="item" data-cluster="{html.escape(str(c["id"]), quote=True)}">'
+        f'<span class="dot" style="background:{html.escape(str(c["color"]), quote=True)};color:{html.escape(str(c["color"]), quote=True)}"></span>'
+        f'{html.escape(str(c["name"]))}</div>'
         for c in graph["clusters"] if c["id"] in used_clusters
     )
-    graph_json_str = json.dumps(graph, separators=(",", ":"))
+    # Escape "</" so chat titles containing the literal substring "</script>" can't
+    # break out of the script block we inline GRAPH into. Also escape line/para
+    # separators which break some JS parsers.
+    graph_json_str = (json.dumps(graph, separators=(",", ":"))
+                      .replace("</", "<\\/")
+                      .replace(" ", "\\u2028")
+                      .replace(" ", "\\u2029"))
     return (template
             .replace("__STATS__", stats_text)
             .replace("__SOURCE_CHIPS__", source_chips)
