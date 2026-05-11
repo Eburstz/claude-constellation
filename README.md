@@ -2,7 +2,11 @@
 
 An interactive 3D map of every conversation you've ever had with Claude — across Claude Code, Cowork, and claude.ai web chat.
 
-![preview](examples/preview.png)
+![preview light](examples/preview.png)
+
+![preview dark](examples/preview-dark.png)
+
+*Light mode for focused reading. Dark mode for the cosmic feel.*
 
 Each conversation is a star. Stars cluster by semantic similarity. Edges connect related conversations. A side panel reads what each one was about, surfaces the patterns you keep falling into, the long sessions you've forgotten, the cross-disciplinary bridges, and — if you opt in — uses Claude to surface things you've missed and let you ask natural-language questions over your entire archive.
 
