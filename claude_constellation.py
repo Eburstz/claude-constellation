@@ -1201,6 +1201,10 @@ def main():
             "by_cluster": dict(Counter(n["cluster"] for n in nodes)),
             "bridge_count": n_bridge,
             "repeat_count": n_repeat,
+            # If there are no Web-source chats, the user probably hasn't done
+            # the claude.ai data export — the HTML viewer uses this flag to
+            # show a first-run banner explaining how to get them.
+            "needs_web_export": Counter(n["source"] for n in nodes).get("Web", 0) == 0,
         },
         "insights": {
             "repeat_clusters": repeat_clusters,

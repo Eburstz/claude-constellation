@@ -394,6 +394,47 @@
     max-height: 220px; overflow: auto;
   }
 
+  /* First-run banner shown when no web-source chats are present */
+  #export-modal {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(2,4,12,0.72); backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  #export-modal.show { display: flex; }
+  body.light #export-modal { background: rgba(60,70,90,0.5); }
+  #export-modal .card {
+    max-width: 460px; width: 100%;
+    background: var(--panel-bg); border: 1px solid var(--accent-border); border-radius: 8px;
+    padding: 28px 32px 26px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  }
+  #export-modal h3 {
+    margin: 0 0 12px;
+    font-family: "ui-serif", "Charter", Georgia, serif;
+    font-size: 22px; font-weight: 400; font-style: italic;
+    color: var(--header-text); letter-spacing: -0.2px;
+  }
+  #export-modal p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 14px; }
+  #export-modal ol { font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); padding-left: 22px; margin: 0 0 18px; }
+  #export-modal ol li { margin-bottom: 4px; }
+  #export-modal code { font-family: ui-monospace, monospace; font-size: 11.5px; background: var(--accent-bg); padding: 1px 6px; border-radius: 3px; color: var(--accent); }
+  #export-modal .actions { display: flex; gap: 10px; flex-direction: column; }
+  #export-modal .primary {
+    display: block; text-align: center;
+    background: var(--accent-bg-strong); border: 1px solid var(--accent-border); color: var(--text-primary);
+    text-decoration: none; padding: 12px 18px; border-radius: 5px;
+    font-size: 13px; font-weight: 500; letter-spacing: .3px;
+    transition: all .15s;
+  }
+  #export-modal .primary:hover { background: var(--accent-bg); border-color: var(--accent); }
+  #export-modal .dismiss {
+    background: none; border: none; color: var(--text-tertiary); cursor: pointer;
+    font-size: 11.5px; padding: 8px; font-family: inherit;
+    text-align: center;
+  }
+  #export-modal .dismiss:hover { color: var(--text-primary); }
+
   /* ── Guided tour ──────────────────────────────────────────────────────── */
   #tour-mask { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
   #tour-mask.show { display: block; }
@@ -503,6 +544,26 @@
 
   <div id="tooltip"></div>
   <div id="empty-hint">drag to rotate · scroll to zoom · click a star to open</div>
+
+  <!-- First-run banner: only shown when web-source chats are missing -->
+  <div id="export-modal">
+    <div class="card">
+      <h3>Your archive looks local-only</h3>
+      <p>This view shows your Claude Code and Cowork sessions, but most people's Claude history lives in <strong>claude.ai web chats</strong> — and those aren't here yet.</p>
+      <p>To include them:</p>
+      <ol>
+        <li>Click the button below — opens claude.ai's privacy settings in a new tab.</li>
+        <li>Click <strong>Export Data</strong> on that page.</li>
+        <li>Wait for Anthropic's email (a few minutes to an hour).</li>
+        <li>Click the email link — a zip lands in <code>~/Downloads</code>.</li>
+        <li>Re-run <code>setup-mac.command</code> (or <code>python3 claude_constellation.py --web-export ~/Downloads/data-…zip</code>).</li>
+      </ol>
+      <div class="actions">
+        <a class="primary" href="https://claude.ai/settings/data-privacy-controls" target="_blank" rel="noopener noreferrer">Open claude.ai settings ↗</a>
+        <button class="dismiss" id="export-modal-dismiss">Got it — continue for now</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Guided tour overlay -->
   <svg id="tour-mask" width="100%" height="100%" preserveAspectRatio="none">
@@ -2302,9 +2363,37 @@ window.addEventListener("resize", function(){
   if (tourMask.classList.contains("show")) showTourStep();
 });
 
-// Auto-start tour on first visit
+// First-run: if the build has no Web-source chats, show the export-prompt
+// banner. Suppresses the tour while it's open. Once dismissed, the tour
+// fires (if it hasn't been seen before).
+function showExportModal() {
+  document.getElementById("export-modal").classList.add("show");
+}
+function hideExportModal() {
+  document.getElementById("export-modal").classList.remove("show");
+  try { localStorage.setItem("constellation_export_prompt_seen", "1"); } catch (e) {}
+  // Now run the tour if it hasn't been seen
+  try {
+    if (!localStorage.getItem("constellation_tour_complete")) {
+      setTimeout(startTour, 400);
+    }
+  } catch (e) {}
+}
+document.getElementById("export-modal-dismiss").addEventListener("click", hideExportModal);
+
+let _exportPromptShown = false;
 try {
-  if (!localStorage.getItem("constellation_tour_complete")) {
+  const needsExport = GRAPH.stats && GRAPH.stats.needs_web_export;
+  const alreadyDismissed = localStorage.getItem("constellation_export_prompt_seen");
+  if (needsExport && !alreadyDismissed) {
+    setTimeout(showExportModal, 400);
+    _exportPromptShown = true;
+  }
+} catch (e) {}
+
+// Auto-start tour on first visit (only if export-prompt isn't taking over).
+try {
+  if (!_exportPromptShown && !localStorage.getItem("constellation_tour_complete")) {
     setTimeout(startTour, 800);
   }
 } catch (e) {
