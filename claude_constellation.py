@@ -18,6 +18,7 @@ on your machine.
 """
 
 import argparse
+import html
 import json
 import math
 import os
@@ -627,12 +628,74 @@ def top_k_neighbors_dense(vectors: list, k: int = 6, min_sim: float = 0.30) -> l
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+# OpenRouter free-model fallback chain — small fast models first.
+OPENROUTER_FREE_MODELS = [
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "openai/gpt-oss-20b:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+]
+
+
+def llm_complete(prompt: str, max_tokens: int = 800, timeout: int = 60) -> str | None:
+    """Provider-agnostic completion. Tries ANTHROPIC_API_KEY first (Haiku),
+    falls back to OPENROUTER_API_KEY (free Llama/GPT-OSS chain). Returns
+    the response text or None on failure / no key set."""
+    anth_key = os.environ.get("ANTHROPIC_API_KEY")
+    if anth_key:
+        body = json.dumps({
+            "model": HAIKU_MODEL,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode("utf-8")
+        req = urllib.request.Request(ANTHROPIC_API_URL, data=body, headers={
+            "Content-Type": "application/json",
+            "x-api-key": anth_key,
+            "anthropic-version": "2023-06-01",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read())
+            return data.get("content", [{}])[0].get("text", "").strip()
+        except Exception:
+            return None
+
+    or_key = os.environ.get("OPENROUTER_API_KEY")
+    if or_key:
+        for model in OPENROUTER_FREE_MODELS:
+            body = json.dumps({
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            }).encode("utf-8")
+            req = urllib.request.Request(OPENROUTER_API_URL, data=body, headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + or_key,
+                "HTTP-Referer": "https://github.com/Eburstz/claude-constellation",
+                "X-Title": "claude-constellation",
+            })
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read())
+                if data.get("error"):
+                    continue  # try next model
+                text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+                if text:
+                    return text
+            except Exception:
+                continue  # try next model
+        return None
+    return None
+
+
+def has_llm_key() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENROUTER_API_KEY"))
 
 
 def name_cluster_with_llm(member_titles: list, member_topics: list = None) -> str:
-    """Ask Haiku for a concise 2-4 word cluster name. Returns None on any failure."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+    """Ask the LLM for a concise 2-4 word cluster name. Returns None on any failure."""
+    if not has_llm_key():
         return None
     titles = "\n".join(f"- {t}" for t in member_titles[:12])
     topics_block = ""
@@ -644,31 +707,111 @@ def name_cluster_with_llm(member_titles: list, member_topics: list = None) -> st
         "case, no quotes or punctuation) that captures what these chats are about.\n\n"
         f"Titles:\n{titles}{topics_block}\n\nTopic name:"
     )
-    body = json.dumps({
-        "model": HAIKU_MODEL,
-        "max_tokens": 24,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        ANTHROPIC_API_URL,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-        text = data.get("content", [{}])[0].get("text", "").strip()
-        text = re.sub(r"[\"'`]", "", text)
-        text = text.split("\n")[0].strip().rstrip(".")
-        if 2 <= len(text) <= 60:
-            return text
-    except Exception:
+    text = llm_complete(prompt, max_tokens=24, timeout=20)
+    if not text:
         return None
+    text = re.sub(r"[\"'`]", "", text)
+    text = text.split("\n")[0].strip().rstrip(".")
+    if 2 <= len(text) <= 60:
+        return text
     return None
+
+
+def name_chats_with_llm(nodes: list, batch_size: int = 15) -> dict:
+    """Generate topical 4-8 word titles for each chat, batched.
+    Replaces title-as-first-question with what the chat is actually about.
+    Caches per-chat by id+content hash. Returns {node_id: title}.
+    Falls back to existing title (the first user message) if no API key
+    or on any individual failure."""
+    cache_path = CACHE_DIR / "chat_titles.json"
+    cache = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text())
+        except Exception:
+            cache = {}
+
+    out = {}
+    to_process = []  # list of (node, cache_key)
+    for n in nodes:
+        # Stable cache key: id + content hash. If preview/summary changes, regenerate.
+        content_hash = hash((
+            n.get("preview", "")[:240],
+            (n.get("summary_seed") or "")[:600],
+        ))
+        key = f"{n['id']}|{content_hash}"
+        if key in cache:
+            out[n["id"]] = cache[key]
+        else:
+            to_process.append((n, key))
+
+    if not has_llm_key():
+        for n, _ in to_process:
+            out[n["id"]] = n["title"]
+        return out
+
+    if to_process:
+        print(f"  generating topical titles for {len(to_process)} chats "
+              f"({(len(to_process) + batch_size - 1) // batch_size} API calls)…")
+
+    for batch_idx in range(0, len(to_process), batch_size):
+        batch = to_process[batch_idx:batch_idx + batch_size]
+        if not batch:
+            continue
+        items = []
+        for n, _ in batch:
+            opener = (n.get("preview") or n.get("title") or "")[:300]
+            summary = (n.get("summary_seed") or "")[:400]
+            topics = ", ".join((n.get("topics") or [])[:5])
+            items.append(
+                f'--- {n["id"]} ---\n'
+                f'first msg: {opener}\n'
+                f'context:  {summary}\n'
+                f'topics:   {topics}'
+            )
+        prompt = (
+            "For each chat below, write a 4-8 word topical title in sentence case "
+            "that captures what the conversation is ACTUALLY about — not the first "
+            "question asked. Be specific: 'Three.js scene composition' not "
+            "'Help with code'; 'Mac LaunchAgent debugging' not 'Why isn't this working'. "
+            "Avoid filler words like 'help with', 'how to', 'discussion of'.\n\n"
+            "Return ONLY a JSON object mapping chat id to title. Nothing else.\n"
+            'Format: {"chat_id_1": "Title here", "chat_id_2": "Other title"}\n\n'
+            "=== CHATS ===\n" + "\n\n".join(items)
+        )
+        try:
+            text = llm_complete(prompt, max_tokens=1500, timeout=90)
+            if not text:
+                continue
+            m = re.search(r"\{[\s\S]*\}", text)
+            if not m:
+                continue
+            parsed = json.loads(m.group(0))
+            for n, key in batch:
+                t = parsed.get(n["id"])
+                if isinstance(t, str):
+                    t = t.strip().strip('"').strip("'").rstrip(".")
+                    # Sanity check the result.
+                    if 4 <= len(t) <= 100:
+                        out[n["id"]] = t
+                        cache[key] = t
+        except Exception as e:
+            print(f"  chat-title batch {batch_idx // batch_size + 1} failed: {e}",
+                  file=sys.stderr)
+            continue
+
+    # Anything that didn't make it through falls back to the existing title.
+    for n, _ in to_process:
+        if n["id"] not in out:
+            out[n["id"]] = n["title"]
+
+    if cache:
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(cache, indent=2))
+        except Exception:
+            pass
+    return out
 
 
 def name_clusters_with_llm(clusters: list, nodes: list) -> dict:
@@ -1029,15 +1172,25 @@ def render_html(graph: dict, template_path: Path) -> str:
     stats_text = f'{stats["nodes"]} conversations · {stats["edges"]} connections · ' + \
                  " · ".join(f"{n} {s}" for s, n in sources.items())
     source_chips = "".join(
-        f'<button class="chip active" data-src="{s}">{s} <span class="count">{n}</span></button>'
+        f'<button class="chip active" data-src="{html.escape(str(s), quote=True)}">{html.escape(str(s))} <span class="count">{n}</span></button>'
         for s, n in sources.items()
     )
     used_clusters = {n["cluster"] for n in graph["nodes"]}
+    # cluster name comes from the LLM — must be HTML-escaped before inline interpolation.
+    # color comes from the hardcoded palette but escape defensively.
     legend_items = "".join(
-        f'<div class="item" data-cluster="{c["id"]}"><span class="dot" style="background:{c["color"]};color:{c["color"]}"></span>{c["name"]}</div>'
+        f'<div class="item" data-cluster="{html.escape(str(c["id"]), quote=True)}">'
+        f'<span class="dot" style="background:{html.escape(str(c["color"]), quote=True)};color:{html.escape(str(c["color"]), quote=True)}"></span>'
+        f'{html.escape(str(c["name"]))}</div>'
         for c in graph["clusters"] if c["id"] in used_clusters
     )
-    graph_json_str = json.dumps(graph, separators=(",", ":"))
+    # Escape "</" so chat titles containing the literal substring "</script>" can't
+    # break out of the script block we inline GRAPH into. Also escape line/para
+    # separators which break some JS parsers.
+    graph_json_str = (json.dumps(graph, separators=(",", ":"))
+                      .replace("</", "<\\/")
+                      .replace(" ", "\\u2028")
+                      .replace(" ", "\\u2029"))
     return (template
             .replace("__STATS__", stats_text)
             .replace("__SOURCE_CHIPS__", source_chips)
@@ -1077,6 +1230,8 @@ def main():
                     help="skip dense embeddings (always use TF-IDF)")
     ap.add_argument("--no-llm-names", action="store_true",
                     help="skip LLM cluster naming even if ANTHROPIC_API_KEY is set")
+    ap.add_argument("--no-llm-chat-titles", action="store_true",
+                    help="skip topical chat title generation even if ANTHROPIC_API_KEY is set")
     ap.add_argument("--graph-json", default=None,
                     help="also write the raw graph JSON to this path")
     args = ap.parse_args()
@@ -1119,9 +1274,10 @@ def main():
     )
     print(f"  {len(clusters)} cluster(s) (pre-naming): {[c['name'] for c in clusters]}")
 
-    # LLM cluster naming via Claude Haiku (no-op if ANTHROPIC_API_KEY not set)
-    if not args.no_llm_names and os.environ.get("ANTHROPIC_API_KEY"):
-        print(f"▸ Asking Claude Haiku to name clusters")
+    # LLM cluster naming — uses ANTHROPIC_API_KEY (Haiku) or OPENROUTER_API_KEY (free).
+    if not args.no_llm_names and has_llm_key():
+        provider = "Claude Haiku" if os.environ.get("ANTHROPIC_API_KEY") else "OpenRouter (free)"
+        print(f"▸ Asking {provider} to name clusters")
         name_map = name_clusters_with_llm(clusters, nodes)
         renamed = 0
         for c in clusters:
@@ -1131,7 +1287,25 @@ def main():
         print(f"  renamed {renamed}/{len(clusters)} clusters")
         print(f"  final names: {[c['name'] for c in clusters]}")
     elif not args.no_llm_names:
-        print(f"  (skipping LLM cluster naming — set ANTHROPIC_API_KEY to enable)")
+        print(f"  (skipping LLM cluster naming — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY to enable)")
+
+    # LLM-generated topical chat titles (replaces "first user message" titles).
+    # Cached, so refreshes only cost the first time. Each chat keeps its original
+    # title as `opener` for the detail panel.
+    if not args.no_llm_chat_titles and has_llm_key():
+        provider = "Claude Haiku" if os.environ.get("ANTHROPIC_API_KEY") else "OpenRouter (free)"
+        print(f"▸ Generating topical chat titles via {provider}")
+        title_map = name_chats_with_llm(nodes)
+        retitled = 0
+        for n in nodes:
+            new_title = title_map.get(n["id"])
+            if new_title and new_title != n["title"]:
+                n["opener"] = n["title"]  # preserve original
+                n["title"] = new_title
+                retitled += 1
+        print(f"  retitled {retitled}/{len(nodes)} chats")
+    elif not args.no_llm_chat_titles:
+        print(f"  (skipping LLM chat titles — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY to enable)")
 
     print(f"▸ Building edges")
     edges = build_edges(nodes, neighbors=neighbors, max_semantic=args.max_bridges)
@@ -1178,6 +1352,7 @@ def main():
             {
                 "id": n["id"],
                 "title": n["title"],
+                "opener": n.get("opener", ""),  # original first-message title if LLM-renamed
                 "source": n["source"],
                 "cluster": n["cluster"],
                 "project": n.get("project", ""),
@@ -1201,6 +1376,10 @@ def main():
             "by_cluster": dict(Counter(n["cluster"] for n in nodes)),
             "bridge_count": n_bridge,
             "repeat_count": n_repeat,
+            # If there are no Web-source chats, the user probably hasn't done
+            # the claude.ai data export — the HTML viewer uses this flag to
+            # show a first-run banner explaining how to get them.
+            "needs_web_export": Counter(n["source"] for n in nodes).get("Web", 0) == 0,
         },
         "insights": {
             "repeat_clusters": repeat_clusters,

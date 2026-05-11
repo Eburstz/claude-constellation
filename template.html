@@ -28,9 +28,11 @@
     --divider: rgba(95,216,232,0.14);
     --row-hover: rgba(95,216,232,0.08);
     --row-active: rgba(95,216,232,0.16);
-    --topic-bg: rgba(95,216,232,0.08);
-    --topic-border: rgba(95,216,232,0.20);
-    --topic-text: #aef0fa;
+    /* Topic chips intentionally use the neutral row-hover / divider tokens so they
+       don't shout against the rest of the panel. */
+    --topic-bg: rgba(255,255,255,0.04);
+    --topic-border: rgba(255,255,255,0.10);
+    --topic-text: var(--text-tertiary);
     --input-bg: rgba(8,14,28,0.7);
     --input-border: rgba(95,216,232,0.22);
     --input-focus: rgba(95,216,232,0.6);
@@ -55,9 +57,9 @@
     --divider: rgba(40,60,100,0.12);
     --row-hover: rgba(40,60,100,0.07);
     --row-active: rgba(40,60,100,0.13);
-    --topic-bg: rgba(60,80,120,0.07);
-    --topic-border: rgba(60,80,120,0.22);
-    --topic-text: #2a4a86;
+    --topic-bg: rgba(40,60,100,0.05);
+    --topic-border: rgba(40,60,100,0.14);
+    --topic-text: var(--text-tertiary);
     --input-bg: rgba(255,255,255,0.85);
     --input-border: rgba(60,80,120,0.25);
     --input-focus: rgba(60,90,160,0.5);
@@ -394,6 +396,47 @@
     max-height: 220px; overflow: auto;
   }
 
+  /* First-run banner shown when no web-source chats are present */
+  #export-modal {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(2,4,12,0.72); backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  #export-modal.show { display: flex; }
+  body.light #export-modal { background: rgba(60,70,90,0.5); }
+  #export-modal .card {
+    max-width: 460px; width: 100%;
+    background: var(--panel-bg); border: 1px solid var(--accent-border); border-radius: 8px;
+    padding: 28px 32px 26px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  }
+  #export-modal h3 {
+    margin: 0 0 12px;
+    font-family: "ui-serif", "Charter", Georgia, serif;
+    font-size: 22px; font-weight: 400; font-style: italic;
+    color: var(--header-text); letter-spacing: -0.2px;
+  }
+  #export-modal p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 14px; }
+  #export-modal ol { font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); padding-left: 22px; margin: 0 0 18px; }
+  #export-modal ol li { margin-bottom: 4px; }
+  #export-modal code { font-family: ui-monospace, monospace; font-size: 11.5px; background: var(--accent-bg); padding: 1px 6px; border-radius: 3px; color: var(--accent); }
+  #export-modal .actions { display: flex; gap: 10px; flex-direction: column; }
+  #export-modal .primary {
+    display: block; text-align: center;
+    background: var(--accent-bg-strong); border: 1px solid var(--accent-border); color: var(--text-primary);
+    text-decoration: none; padding: 12px 18px; border-radius: 5px;
+    font-size: 13px; font-weight: 500; letter-spacing: .3px;
+    transition: all .15s;
+  }
+  #export-modal .primary:hover { background: var(--accent-bg); border-color: var(--accent); }
+  #export-modal .dismiss {
+    background: none; border: none; color: var(--text-tertiary); cursor: pointer;
+    font-size: 11.5px; padding: 8px; font-family: inherit;
+    text-align: center;
+  }
+  #export-modal .dismiss:hover { color: var(--text-primary); }
+
   /* ── Guided tour ──────────────────────────────────────────────────────── */
   #tour-mask { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
   #tour-mask.show { display: block; }
@@ -504,6 +547,26 @@
   <div id="tooltip"></div>
   <div id="empty-hint">drag to rotate · scroll to zoom · click a star to open</div>
 
+  <!-- First-run banner: only shown when web-source chats are missing -->
+  <div id="export-modal">
+    <div class="card">
+      <h3>Your archive looks local-only</h3>
+      <p>This view shows your Claude Code and Cowork sessions, but most people's Claude history lives in <strong>claude.ai web chats</strong> — and those aren't here yet.</p>
+      <p>To include them:</p>
+      <ol>
+        <li>Click the button below — opens claude.ai's privacy settings in a new tab.</li>
+        <li>Click <strong>Export Data</strong> on that page.</li>
+        <li>Wait for Anthropic's email (a few minutes to an hour).</li>
+        <li>Click the email link — a zip lands in <code>~/Downloads</code>.</li>
+        <li>Re-run <code>setup-mac.command</code> (or <code>python3 claude_constellation.py --web-export ~/Downloads/data-…zip</code>).</li>
+      </ol>
+      <div class="actions">
+        <a class="primary" href="https://claude.ai/settings/data-privacy-controls" target="_blank" rel="noopener noreferrer">Open claude.ai settings ↗</a>
+        <button class="dismiss" id="export-modal-dismiss">Got it — continue for now</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Guided tour overlay -->
   <svg id="tour-mask" width="100%" height="100%" preserveAspectRatio="none">
     <defs>
@@ -536,7 +599,7 @@ window.addEventListener("error", function(e) {
   b.textContent = "JS ERROR\n" + e.message + "\n  at " + (e.filename||"?") + ":" + (e.lineno||"?") + ":" + (e.colno||"?") + "\n" + (e.error && e.error.stack || "");
 });
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha512-dLxUelApnYxpLt6K2iomGngnHO83iUvZytA3YjDUCjT0HDOHKXnVYdf3hU4JjM8uEhxf9nD1/ey98U3t2vZ0qQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 "use strict";
 
@@ -570,13 +633,16 @@ scene.fog = new THREE.Fog(0x050813, 1200, 2400);
 
 // ---- Soft glow texture for sprite halos --------------------------------
 function makeGlowTexture(size) {
+  // Tighter radial falloff — concentrate the bright area near the center so
+  // overlapping halos don't wash everything out behind them.
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d");
   const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
   g.addColorStop(0,    "rgba(255,255,255,1)");
-  g.addColorStop(0.2,  "rgba(255,255,255,0.5)");
-  g.addColorStop(0.5,  "rgba(255,255,255,0.12)");
+  g.addColorStop(0.10, "rgba(255,255,255,0.55)");
+  g.addColorStop(0.30, "rgba(255,255,255,0.10)");
+  g.addColorStop(0.60, "rgba(255,255,255,0.02)");
   g.addColorStop(1,    "rgba(255,255,255,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
@@ -684,23 +750,25 @@ nodes.forEach(n => {
   const group = new THREE.Group();
   group.position.set(n.x, n.y, n.z);
 
-  // Outermost halo (very soft, additive blend)
+  // Outermost halo — smaller and dimmer so overlapping halos don't wash out
+  // everything behind them. Tighter falloff (set in makeGlowTexture) does most
+  // of the work; we keep these sprites smaller as a second control.
   const haloMat = new THREE.SpriteMaterial({
-    map: glowTex, color: colorMain, transparent: true, opacity: 0.18,
+    map: glowTex, color: colorMain, transparent: true, opacity: 0.14,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const halo = new THREE.Sprite(haloMat);
-  const haloSize = 36 * sizeFactor * (isBridge ? 1.3 : 1);
+  const haloSize = 26 * sizeFactor * (isBridge ? 1.3 : 1);
   halo.scale.set(haloSize, haloSize, 1);
   group.add(halo);
 
   // Mid layer
   const midMat = new THREE.SpriteMaterial({
-    map: glowTex, color: colorMain, transparent: true, opacity: 0.42,
+    map: glowTex, color: colorMain, transparent: true, opacity: 0.34,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const mid = new THREE.Sprite(midMat);
-  const midSize = 14 * sizeFactor;
+  const midSize = 11 * sizeFactor;
   mid.scale.set(midSize, midSize, 1);
   group.add(mid);
 
@@ -737,8 +805,8 @@ nodes.forEach(n => {
   group.userData.coreMat = coreMat;
   group.userData.midMat = midMat;
   group.userData.haloMat = haloMat;
-  group.userData.baseHaloOpacity = 0.18;
-  group.userData.baseMidOpacity = 0.42;
+  group.userData.baseHaloOpacity = 0.14;
+  group.userData.baseMidOpacity = 0.34;
   // Invisible larger sphere just for click detection — makes the click target
   // generous and consistent regardless of how dim/small the visible sprite is.
   const hitGeo = new THREE.SphereGeometry(16 * sizeFactor + (isBridge ? 8 : 0), 8, 8);
@@ -913,16 +981,34 @@ function setHover(g, cx, cy) {
     const n = g.userData.node;
     const cl = clusterMap[n.cluster];
     const cc = connCount[n.id] || 0;
-    tip.innerHTML =
-      '<div class="src">' + n.source + ' · ' + n.date + (n.is_bridge ? ' · bridge' : '') + '</div>' +
-      n.title +
-      '<div style="font-size:10px;color:#8aa1bd;margin-top:4px;display:flex;gap:8px">' +
-        (cl ? '<span>' + cl.name + '</span>' : '') +
-        '<span>·</span>' +
-        '<span>' + cc + ' connection' + (cc === 1 ? '' : 's') + '</span>' +
-        '<span>·</span>' +
-        '<span>' + n.messages + ' messages</span>' +
-      '</div>';
+    // Build via DOM so user-controlled fields (title, cluster name) can't inject HTML.
+    tip.textContent = "";
+    const src = document.createElement("div");
+    src.className = "src";
+    src.textContent = n.source + " · " + n.date + (n.is_bridge ? " · bridge" : "");
+    tip.appendChild(src);
+    const titleNode = document.createTextNode(n.title || "");
+    tip.appendChild(titleNode);
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size:10px;color:#8aa1bd;margin-top:4px;display:flex;gap:8px";
+    if (cl) {
+      const s = document.createElement("span");
+      s.textContent = cl.name || "";
+      meta.appendChild(s);
+      const sep = document.createElement("span");
+      sep.textContent = "·";
+      meta.appendChild(sep);
+    }
+    const conn = document.createElement("span");
+    conn.textContent = cc + " connection" + (cc === 1 ? "" : "s");
+    meta.appendChild(conn);
+    const sep2 = document.createElement("span");
+    sep2.textContent = "·";
+    meta.appendChild(sep2);
+    const msgs = document.createElement("span");
+    msgs.textContent = n.messages + " messages";
+    meta.appendChild(msgs);
+    tip.appendChild(meta);
     tip.style.opacity = 1;
     tip.style.left = (cx + 14) + "px";
     tip.style.top = (cy + 14) + "px";
@@ -1005,9 +1091,10 @@ function populatePanel(d) {
   const sc = sourceColors[d.source] || "#666";
   const tag = document.getElementById("panel-source");
   tag.textContent = d.source;
-  tag.style.background = sc + "22";
-  tag.style.color = c.light;
-  tag.style.border = "1px solid " + sc + "88";
+  // Use theme tokens so this aligns with the rest of the UI instead of source-tinted shouting.
+  tag.style.background = "var(--row-hover)";
+  tag.style.color = "var(--text-secondary)";
+  tag.style.border = "1px solid var(--divider)";
   document.getElementById("panel-bridge").style.display = d.is_bridge ? null : "none";
   document.getElementById("panel-title").textContent = d.title;
   const dateLabel = d.last_date && d.last_date !== d.date ? (d.date + " → " + d.last_date) : d.date;
@@ -1468,7 +1555,7 @@ function renderDiscoveryEmpty(body) {
   const intro = document.createElement("div");
   intro.className = "empty";
   intro.style.padding = "0 0 6px";
-  intro.textContent = "Surface things you've missed: abandoned threads, unfinished thinking, unexpected connections, natural next questions. Powered by Claude.";
+  intro.textContent = "Surface things you've missed: abandoned threads, unfinished thinking, unexpected connections, natural next questions.";
   body.appendChild(intro);
 
   const btn = document.createElement("button");
@@ -1485,13 +1572,17 @@ function renderDiscoveryEmpty(body) {
 
   const meta = document.createElement("div");
   meta.className = "gen-meta";
-  meta.textContent = qaGetKey()
-    ? "~1 Haiku call (≈$0.01–0.02). Cached for 24h."
-    : "Requires an Anthropic API key — you'll be prompted when you click above.";
+  const k = qaGetKey();
+  meta.textContent = !k
+    ? "Requires an Anthropic or OpenRouter API key — you'll be prompted when you click above."
+    : qaProvider() === "openrouter"
+    ? "Free via OpenRouter (Llama). Cached for 24h."
+    : "~1 Haiku call (≈$0.01–0.02). Cached for 24h.";
   body.appendChild(meta);
 }
 
 // Reusable inline API-key form. Calls onSaved after a successful save.
+// Accepts either an Anthropic key (sk-ant-...) or an OpenRouter key (sk-or-...).
 function buildKeyForm(parentBody, onSaved) {
   // Remove any existing form first
   const existing = parentBody.querySelector(".inline-keyform");
@@ -1500,13 +1591,16 @@ function buildKeyForm(parentBody, onSaved) {
   wrap.className = "qa-keyform inline-keyform";
   wrap.style.marginTop = "10px";
   wrap.innerHTML = `
-    <p>Paste your Anthropic API key. Stored only in your browser; sent only to api.anthropic.com.</p>
-    <input type="password" placeholder="sk-ant-..." />
+    <p>Paste an Anthropic key (<code>sk-ant-…</code>) or an OpenRouter key (<code>sk-or-…</code>). Stored only in your browser; sent only to that provider's API.</p>
+    <input type="password" placeholder="sk-ant-... or sk-or-..." />
     <div class="actions">
       <button class="primary">save</button>
       <button class="cancel">cancel</button>
     </div>
-    <div class="qa-status" style="margin-top:6px">Get a key at console.anthropic.com</div>
+    <div class="qa-status" style="margin-top:6px;line-height:1.55">
+      <strong>Free path:</strong> sign up at <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">openrouter.ai</a>, get a key, paste it. We'll use a free Llama model — $0.<br>
+      <strong>Higher quality:</strong> sign up at <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">console.anthropic.com</a>. New accounts get $5 free credits (≈hundreds of questions).
+    </div>
   `;
   const input = wrap.querySelector("input");
   input.value = qaGetKey();
@@ -1575,77 +1669,73 @@ async function runDiscover(btn) {
   btn.textContent = "thinking…";
 
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  // Free models are slow with long contexts. Use a much leaner payload for OpenRouter.
+  const isFree = qaProvider() === "openrouter";
+  const chatLimit = isFree ? 8 : 30;
+  const summaryLen = isFree ? 100 : 400;
   const recentSorted = nodes
     .filter(n => (n.date || "") >= ninetyDaysAgo)
     .sort((a, b) => b.messages - a.messages)
-    .slice(0, 30);
+    .slice(0, chatLimit);
 
-  const ctx = {
-    total_chats: nodes.length,
-    recent_chats: recentSorted.map(n => ({
-      id: n.id,
-      title: n.title,
-      date: n.date,
-      source: n.source,
-      cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
-      messages: n.messages,
-      topics: (n.topics || []).slice(0, 5),
-      summary: (n.summary || "").slice(0, 400),
-    })),
-    repeat_patterns: (insights.repeat_clusters || []).slice(0, 8).map(g => ({
-      theme: g.theme,
-      size: g.size,
-      chat_ids: g.members.map(m => m.id),
-    })),
-    bridges: nodes.filter(n => n.is_bridge).map(n => ({
-      id: n.id, title: n.title, cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
-    })),
-    forgotten_gold: (insights.forgotten_gold || []).slice(0, 8).map(g => ({
-      id: g.id, title: g.title, days_ago: g.days_ago, messages: g.messages,
-    })),
-  };
+  let prompt;
+  if (isFree) {
+    // Minimal context, minimal output — small models can actually finish this.
+    const chatLines = recentSorted.map(n => `${n.id} | ${n.title} | ${n.messages}msgs | ${(n.summary||'').slice(0,summaryLen)}`).join("\n");
+    const repeats = (insights.repeat_clusters || []).slice(0, 3).map(g => `${g.theme} (${g.members.length} chats)`).join("; ");
+    const forgotten = (insights.forgotten_gold || []).slice(0, 3).map(g => `${g.id}: ${g.title} (${g.days_ago}d ago)`).join("\n");
+    prompt = `Pick 3 things worth this person's attention from their Claude chat history. Mix: abandoned threads, repeat questions, surprising connections, next steps.
 
-  const prompt =
-    "You are looking at the metadata of someone's personal Claude conversation archive. Surface 4-6 specific things worth their attention. Focus on:\n" +
-    "1. Threads they started but seem to have abandoned — substantial sessions without recent follow-up.\n" +
-    "2. Topics where they're asking variations of the same question — unfinished thinking, places to commit to an answer.\n" +
-    "3. Unexpected connections between different topic clusters — cross-disciplinary opportunities.\n" +
-    "4. Ideas mentioned but not followed up on — TODOs hiding inside chats.\n" +
-    "5. Natural next questions that would build on existing work.\n\n" +
-    "Be concrete and reference specific chats. Avoid generic advice. If you can't find anything for a category, skip it — quality over quantity.\n\n" +
-    "Each observation must include:\n" +
-    "- title: 5-10 words, sentence case, specific. Not \"Continue working on X\" — say what.\n" +
-    "- why: 1-2 sentences explaining what to do or why this matters.\n" +
-    "- chat_ids: array of 1-3 specific chat IDs (must exist in the data below).\n\n" +
-    "Respond with ONLY a JSON array, no markdown, no preamble:\n" +
-    '[{"title": "...", "why": "...", "chat_ids": ["..."]}, ...]\n\n' +
-    "=== ARCHIVE METADATA ===\n" +
-    JSON.stringify(ctx, null, 2);
+Recent chats (id | title | msgs | summary):
+${chatLines}
+
+Repeat patterns: ${repeats || "none"}
+
+Forgotten sessions (long ones not opened in 30+ days):
+${forgotten || "none"}
+
+Respond with ONLY a JSON array of 3 items, no other text:
+[{"title":"5-10 words","why":"1-2 sentences","chat_ids":["chat_id_here"]}]`;
+  } else {
+    const ctx = {
+      total_chats: nodes.length,
+      recent_chats: recentSorted.map(n => ({
+        id: n.id, title: n.title, date: n.date, source: n.source,
+        cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
+        messages: n.messages,
+        topics: (n.topics || []).slice(0, 5),
+        summary: (n.summary || "").slice(0, summaryLen),
+      })),
+      repeat_patterns: (insights.repeat_clusters || []).slice(0, 8).map(g => ({
+        theme: g.theme, size: g.size, chat_ids: g.members.map(m => m.id),
+      })),
+      bridges: nodes.filter(n => n.is_bridge).map(n => ({
+        id: n.id, title: n.title, cluster: (clusterMap[n.cluster] || {}).name || n.cluster,
+      })),
+      forgotten_gold: (insights.forgotten_gold || []).slice(0, 8).map(g => ({
+        id: g.id, title: g.title, days_ago: g.days_ago, messages: g.messages,
+      })),
+    };
+    prompt =
+      "You are looking at the metadata of someone's personal Claude conversation archive. Surface 4-6 specific things worth their attention. Focus on:\n" +
+      "1. Threads they started but seem to have abandoned — substantial sessions without recent follow-up.\n" +
+      "2. Topics where they're asking variations of the same question — unfinished thinking, places to commit to an answer.\n" +
+      "3. Unexpected connections between different topic clusters — cross-disciplinary opportunities.\n" +
+      "4. Ideas mentioned but not followed up on — TODOs hiding inside chats.\n" +
+      "5. Natural next questions that would build on existing work.\n\n" +
+      "Be concrete and reference specific chats. Avoid generic advice. If you can't find anything for a category, skip it — quality over quantity.\n\n" +
+      "Each observation must include:\n" +
+      "- title: 5-10 words, sentence case, specific. Not \"Continue working on X\" — say what.\n" +
+      "- why: 1-2 sentences explaining what to do or why this matters.\n" +
+      "- chat_ids: array of 1-3 specific chat IDs (must exist in the data below).\n\n" +
+      "Respond with ONLY a JSON array, no markdown, no preamble:\n" +
+      '[{"title": "...", "why": "...", "chat_ids": ["..."]}, ...]\n\n' +
+      "=== ARCHIVE METADATA ===\n" +
+      JSON.stringify(ctx, null, 2);
+  }
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: DISCOVER_MODEL,
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      btn.disabled = false;
-      btn.textContent = "generate discoveries";
-      const err = (data && data.error && data.error.message) || resp.statusText;
-      alert("API error: " + err);
-      return;
-    }
-    const text = (data.content && data.content[0] && data.content[0].text) || "[]";
+    const text = await llmComplete(prompt, isFree ? 500 : 2000, (msg) => { btn.textContent = msg; });
     let discoveries = [];
     try {
       const match = text.match(/\[[\s\S]*\]/);
@@ -1667,7 +1757,7 @@ async function runDiscover(btn) {
   } catch (e) {
     btn.disabled = false;
     btn.textContent = "generate discoveries";
-    alert("Network error: " + e.message);
+    alert("API error: " + e.message);
   }
 }
 
@@ -1710,6 +1800,138 @@ function qaSetKey(k) {
   } catch (e) {}
 }
 
+// Provider detection — Anthropic keys start with sk-ant-, OpenRouter keys with sk-or-.
+// OpenRouter offers genuinely-free models so users can run Q&A and discover at $0.
+function qaProvider() {
+  const k = qaGetKey();
+  if (!k) return null;
+  if (k.startsWith("sk-or-")) return "openrouter";
+  return "anthropic";  // default: Anthropic sk-ant- (and anything else)
+}
+
+// OpenRouter free-model queues are slow on big models. Fast small models first,
+// then fall through to larger ones if a small model is overloaded.
+const OPENROUTER_FREE_MODELS = [
+  "meta-llama/llama-3.2-3b-instruct:free",   // 3B — fastest, decent quality
+  "openai/gpt-oss-20b:free",                  // 20B
+  "nvidia/nemotron-nano-9b-v2:free",          // 9B
+  "meta-llama/llama-3.3-70b-instruct:free",  // 70B — last resort
+];
+
+function formatOpenRouterError(data, status) {
+  const err = (data && data.error) || {};
+  let msg = err.message || (typeof err === "string" ? err : "") || `HTTP ${status}`;
+  if (err.metadata) {
+    if (err.metadata.provider_name) msg += ` (upstream: ${err.metadata.provider_name})`;
+    if (err.metadata.raw) {
+      const raw = typeof err.metadata.raw === "string" ? err.metadata.raw : JSON.stringify(err.metadata.raw);
+      msg += ` — ${raw.slice(0, 200)}`;
+    }
+  }
+  return msg;
+}
+
+async function openrouterCall(apiKey, model, prompt, maxTokens, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs || 90000);
+  let resp, data;
+  try {
+    resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey,
+        "HTTP-Referer": "https://github.com/Eburstz/claude-constellation",
+        "X-Title": "claude-constellation",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === "AbortError") throw new Error(`[OpenRouter:${model}] timed out after ${(timeoutMs||30000)/1000}s`);
+    throw e;
+  }
+  clearTimeout(timer);
+  try { data = await resp.json(); } catch (e) { data = null; }
+  if (!resp.ok) throw new Error(`[OpenRouter:${model}] ${formatOpenRouterError(data, resp.status)}`);
+  // OpenRouter sometimes returns 200 with an error body (provider failure).
+  if (data && data.error) throw new Error(`[OpenRouter:${model}] ${formatOpenRouterError(data, resp.status)}`);
+  return (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+}
+
+async function anthropicCall(apiKey, prompt, maxTokens) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) {
+    const msg = (data && data.error && (data.error.message || data.error)) || resp.statusText;
+    const hint = !apiKey.startsWith("sk-ant-")
+      ? " (Tip: this key was sent to Anthropic but doesn't start with sk-ant-. If you meant OpenRouter, the key must start with sk-or-.)"
+      : "";
+    throw new Error(`[Anthropic] ${typeof msg === "string" ? msg : JSON.stringify(msg)}${hint}`);
+  }
+  return (data.content && data.content[0] && data.content[0].text) || "";
+}
+
+// Single fetch wrapper that handles both providers, with fallback for OpenRouter.
+// onProgress(msg) is called before each model attempt (useful for UI status).
+async function llmComplete(prompt, maxTokens, onProgress) {
+  const apiKey = qaGetKey();
+  if (!apiKey) throw new Error("no API key");
+  const provider = qaProvider();
+
+  if (provider === "openrouter") {
+    let lastErr = null;
+    for (let i = 0; i < OPENROUTER_FREE_MODELS.length; i++) {
+      const model = OPENROUTER_FREE_MODELS[i];
+      const short = model.split("/").pop().replace(":free", "");
+      // Live elapsed counter so the user can see we're alive during the (sometimes slow) free queue.
+      let elapsed = 0;
+      const tick = setInterval(() => {
+        elapsed += 1;
+        if (onProgress) onProgress(`trying ${short}${i ? " (fallback)" : ""}… ${elapsed}s`);
+      }, 1000);
+      if (onProgress) onProgress(`trying ${short}${i ? " (fallback)" : ""}… 0s`);
+      try {
+        const result = await openrouterCall(apiKey, model, prompt, maxTokens, 45000);
+        clearInterval(tick);
+        return result;
+      } catch (e) {
+        clearInterval(tick);
+        console.warn("OpenRouter model failed:", model, e.message);
+        lastErr = e;
+        const m = String(e.message || "").toLowerCase();
+        // 401 / invalid key → stop immediately, no point trying other models.
+        if (m.includes("401") || m.includes("invalid api") || m.includes("unauthor") || m.includes("no auth")) {
+          throw e;
+        }
+        // otherwise try the next model
+      }
+    }
+    throw lastErr || new Error("[OpenRouter] all fallback models failed");
+  }
+
+  if (onProgress) onProgress("calling Claude Haiku…");
+  return await anthropicCall(apiKey, prompt, maxTokens);
+}
+
 function renderQATab() {
   const root = document.getElementById("qa-content");
   root.innerHTML = "";
@@ -1736,13 +1958,16 @@ function renderQATab() {
   const keyForm = document.createElement("div");
   keyForm.id = "qa-key-form"; keyForm.className = "qa-keyform"; keyForm.style.display = "none";
   keyForm.innerHTML = `
-    <p>Paste your Anthropic API key. Stored in your browser only — never sent anywhere except api.anthropic.com.</p>
-    <input type="password" id="qa-key-input" placeholder="sk-ant-..." />
+    <p>Paste an Anthropic key (<code>sk-ant-…</code>) or an OpenRouter key (<code>sk-or-…</code>). Stored in your browser; sent only to that provider.</p>
+    <input type="password" id="qa-key-input" placeholder="sk-ant-... or sk-or-..." />
     <div class="actions">
       <button class="primary" id="qa-key-save">save</button>
       <button id="qa-key-clear">clear stored key</button>
     </div>
-    <div class="qa-status" style="margin-top:8px">Get a key at console.anthropic.com</div>
+    <div class="qa-status" style="margin-top:8px;line-height:1.55">
+      <strong>Free path:</strong> <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">openrouter.ai</a> → uses a free Llama model.<br>
+      <strong>Higher quality:</strong> <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">console.anthropic.com</a> → $5 free credits, then Haiku at ~$0.005/question.
+    </div>
   `;
   root.appendChild(keyForm);
 
@@ -1837,34 +2062,15 @@ async function askQA() {
 
   const submit = document.getElementById("qa-submit");
   submit.disabled = true; submit.textContent = "thinking…";
-  setQAStatus("Asking Claude…");
+  const providerLabel = qaProvider() === "openrouter" ? "Llama via OpenRouter" : "Claude";
+  setQAStatus("Asking " + providerLabel + "…");
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: QA_MODEL,
-        max_tokens: QA_MAX_TOKENS,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      const msg = (data && data.error && data.error.message) || resp.statusText;
-      setQAStatus("API error: " + msg, true);
-      return;
-    }
-    const text = (data.content && data.content[0] && data.content[0].text) || "(empty response)";
-    document.getElementById("qa-answer").textContent = text;
+    const text = await llmComplete(prompt, QA_MAX_TOKENS, (msg) => setQAStatus(msg));
+    document.getElementById("qa-answer").textContent = text || "(empty response)";
     setQAStatus("Done.");
   } catch (e) {
-    setQAStatus("Network error: " + e.message, true);
+    setQAStatus("API error: " + e.message, true);
   } finally {
     submit.disabled = false; submit.textContent = "ask";
   }
@@ -2297,9 +2503,37 @@ window.addEventListener("resize", function(){
   if (tourMask.classList.contains("show")) showTourStep();
 });
 
-// Auto-start tour on first visit
+// First-run: if the build has no Web-source chats, show the export-prompt
+// banner. Suppresses the tour while it's open. Once dismissed, the tour
+// fires (if it hasn't been seen before).
+function showExportModal() {
+  document.getElementById("export-modal").classList.add("show");
+}
+function hideExportModal() {
+  document.getElementById("export-modal").classList.remove("show");
+  try { localStorage.setItem("constellation_export_prompt_seen", "1"); } catch (e) {}
+  // Now run the tour if it hasn't been seen
+  try {
+    if (!localStorage.getItem("constellation_tour_complete")) {
+      setTimeout(startTour, 400);
+    }
+  } catch (e) {}
+}
+document.getElementById("export-modal-dismiss").addEventListener("click", hideExportModal);
+
+let _exportPromptShown = false;
 try {
-  if (!localStorage.getItem("constellation_tour_complete")) {
+  const needsExport = GRAPH.stats && GRAPH.stats.needs_web_export;
+  const alreadyDismissed = localStorage.getItem("constellation_export_prompt_seen");
+  if (needsExport && !alreadyDismissed) {
+    setTimeout(showExportModal, 400);
+    _exportPromptShown = true;
+  }
+} catch (e) {}
+
+// Auto-start tour on first visit (only if export-prompt isn't taking over).
+try {
+  if (!_exportPromptShown && !localStorage.getItem("constellation_tour_complete")) {
     setTimeout(startTour, 800);
   }
 } catch (e) {
