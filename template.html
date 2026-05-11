@@ -1558,6 +1558,7 @@ function renderDiscoveryEmpty(body) {
 }
 
 // Reusable inline API-key form. Calls onSaved after a successful save.
+// Accepts either an Anthropic key (sk-ant-...) or an OpenRouter key (sk-or-...).
 function buildKeyForm(parentBody, onSaved) {
   // Remove any existing form first
   const existing = parentBody.querySelector(".inline-keyform");
@@ -1566,13 +1567,16 @@ function buildKeyForm(parentBody, onSaved) {
   wrap.className = "qa-keyform inline-keyform";
   wrap.style.marginTop = "10px";
   wrap.innerHTML = `
-    <p>Paste your Anthropic API key. Stored only in your browser; sent only to api.anthropic.com.</p>
-    <input type="password" placeholder="sk-ant-..." />
+    <p>Paste an Anthropic key (<code>sk-ant-…</code>) or an OpenRouter key (<code>sk-or-…</code>). Stored only in your browser; sent only to that provider's API.</p>
+    <input type="password" placeholder="sk-ant-... or sk-or-..." />
     <div class="actions">
       <button class="primary">save</button>
       <button class="cancel">cancel</button>
     </div>
-    <div class="qa-status" style="margin-top:6px">Get a key at console.anthropic.com</div>
+    <div class="qa-status" style="margin-top:6px;line-height:1.55">
+      <strong>Free path:</strong> sign up at <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">openrouter.ai</a>, get a key, paste it. We'll use a free Llama model — $0.<br>
+      <strong>Higher quality:</strong> sign up at <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">console.anthropic.com</a>. New accounts get $5 free credits (≈hundreds of questions).
+    </div>
   `;
   const input = wrap.querySelector("input");
   input.value = qaGetKey();
@@ -1689,29 +1693,7 @@ async function runDiscover(btn) {
     JSON.stringify(ctx, null, 2);
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: DISCOVER_MODEL,
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      btn.disabled = false;
-      btn.textContent = "generate discoveries";
-      const err = (data && data.error && data.error.message) || resp.statusText;
-      alert("API error: " + err);
-      return;
-    }
-    const text = (data.content && data.content[0] && data.content[0].text) || "[]";
+    const text = await llmComplete(prompt, 2000);
     let discoveries = [];
     try {
       const match = text.match(/\[[\s\S]*\]/);
@@ -1733,7 +1715,7 @@ async function runDiscover(btn) {
   } catch (e) {
     btn.disabled = false;
     btn.textContent = "generate discoveries";
-    alert("Network error: " + e.message);
+    alert("API error: " + e.message);
   }
 }
 
@@ -1776,6 +1758,61 @@ function qaSetKey(k) {
   } catch (e) {}
 }
 
+// Provider detection — Anthropic keys start with sk-ant-, OpenRouter keys with sk-or-.
+// OpenRouter offers genuinely-free models so users can run Q&A and discover at $0.
+function qaProvider() {
+  const k = qaGetKey();
+  if (!k) return null;
+  if (k.startsWith("sk-or-")) return "openrouter";
+  return "anthropic";  // default: Anthropic sk-ant- (and anything else)
+}
+
+// Single fetch wrapper that handles both providers' wire formats.
+async function llmComplete(prompt, maxTokens) {
+  const apiKey = qaGetKey();
+  if (!apiKey) throw new Error("no API key");
+  const provider = qaProvider();
+
+  let url, headers, body, extractText;
+  if (provider === "openrouter") {
+    url = "https://openrouter.ai/api/v1/chat/completions";
+    headers = {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiKey,
+      "HTTP-Referer": "https://github.com/Eburstz/claude-constellation",
+      "X-Title": "claude-constellation",
+    };
+    body = JSON.stringify({
+      model: "meta-llama/llama-3.1-8b-instruct:free",
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    });
+    extractText = (d) => (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+  } else {
+    url = "https://api.anthropic.com/v1/messages";
+    headers = {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+    body = JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    });
+    extractText = (d) => (d.content && d.content[0] && d.content[0].text) || "";
+  }
+
+  const resp = await fetch(url, { method: "POST", headers, body });
+  const data = await resp.json();
+  if (!resp.ok) {
+    const msg = (data && data.error && (data.error.message || data.error)) || resp.statusText;
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  return extractText(data);
+}
+
 function renderQATab() {
   const root = document.getElementById("qa-content");
   root.innerHTML = "";
@@ -1802,13 +1839,16 @@ function renderQATab() {
   const keyForm = document.createElement("div");
   keyForm.id = "qa-key-form"; keyForm.className = "qa-keyform"; keyForm.style.display = "none";
   keyForm.innerHTML = `
-    <p>Paste your Anthropic API key. Stored in your browser only — never sent anywhere except api.anthropic.com.</p>
-    <input type="password" id="qa-key-input" placeholder="sk-ant-..." />
+    <p>Paste an Anthropic key (<code>sk-ant-…</code>) or an OpenRouter key (<code>sk-or-…</code>). Stored in your browser; sent only to that provider.</p>
+    <input type="password" id="qa-key-input" placeholder="sk-ant-... or sk-or-..." />
     <div class="actions">
       <button class="primary" id="qa-key-save">save</button>
       <button id="qa-key-clear">clear stored key</button>
     </div>
-    <div class="qa-status" style="margin-top:8px">Get a key at console.anthropic.com</div>
+    <div class="qa-status" style="margin-top:8px;line-height:1.55">
+      <strong>Free path:</strong> <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">openrouter.ai</a> → uses a free Llama model.<br>
+      <strong>Higher quality:</strong> <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">console.anthropic.com</a> → $5 free credits, then Haiku at ~$0.005/question.
+    </div>
   `;
   root.appendChild(keyForm);
 
@@ -1903,34 +1943,15 @@ async function askQA() {
 
   const submit = document.getElementById("qa-submit");
   submit.disabled = true; submit.textContent = "thinking…";
-  setQAStatus("Asking Claude…");
+  const providerLabel = qaProvider() === "openrouter" ? "Llama via OpenRouter" : "Claude";
+  setQAStatus("Asking " + providerLabel + "…");
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: QA_MODEL,
-        max_tokens: QA_MAX_TOKENS,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      const msg = (data && data.error && data.error.message) || resp.statusText;
-      setQAStatus("API error: " + msg, true);
-      return;
-    }
-    const text = (data.content && data.content[0] && data.content[0].text) || "(empty response)";
-    document.getElementById("qa-answer").textContent = text;
+    const text = await llmComplete(prompt, QA_MAX_TOKENS);
+    document.getElementById("qa-answer").textContent = text || "(empty response)";
     setQAStatus("Done.");
   } catch (e) {
-    setQAStatus("Network error: " + e.message, true);
+    setQAStatus("API error: " + e.message, true);
   } finally {
     submit.disabled = false; submit.textContent = "ask";
   }
